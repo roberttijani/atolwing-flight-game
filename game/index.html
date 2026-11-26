@@ -1,0 +1,167 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>AtolWing: Archipelago Sortie</title>
+  <link rel="stylesheet" href="./styles.css">
+</head>
+<body>
+  <header id="deck-header">
+    <h1 class="deck-brand">AtolWing: Archipelago Sortie</h1>
+    <nav class="deck-nav" aria-label="Flight Deck Controls">
+      <button type="button" id="btn-camera" class="deck-btn" aria-pressed="false">Cam: Chase [C]</button>
+      <button type="button" id="btn-flaps" class="deck-btn">Flaps: 15 deg [F]</button>
+      <button type="button" id="btn-brakes" class="deck-btn" aria-pressed="false">Brakes: OFF [B]</button>
+      <button type="button" id="btn-mute" class="deck-btn" aria-pressed="false">Audio: Live [M]</button>
+      <button type="button" id="btn-reset" class="deck-btn">Reset [R]</button>
+      <button type="button" id="btn-pause" class="deck-btn" aria-expanded="true">Resume Sortie [P]</button>
+    </nav>
+  </header>
+
+  <main id="viewport-main">
+    <canvas id="flight-canvas" aria-label="3D flight view of the Kestrel-28 twin-turboprop over the volcanic archipelago"></canvas>
+    <canvas id="hud-canvas" aria-hidden="true"></canvas>
+
+    <!-- Loading State (R-27) -->
+    <section id="boot-state" class="state-banner" aria-live="polite">
+      <h2>Initializing Avionics &amp; Terrain</h2>
+      <p>Building volcanic archipelago mesh, runway PAPI lighting, and Kestrel-28 flight physics...</p>
+    </section>
+
+    <!-- Error State (R-27) -->
+    <section id="error-state" class="state-banner" role="alert" hidden>
+      <h2>WebGL Flight Renderer Unavailable</h2>
+      <p id="error-detail">Hardware WebGL rendering could not start. Enable WebGL in desktop Chrome and reload the page.</p>
+    </section>
+
+    <!-- Sortie Briefing & Pause Deck -->
+    <div id="briefing-modal" class="avionics-modal" role="dialog" aria-modal="true" aria-labelledby="briefing-title">
+      <div class="modal-card">
+        <div class="modal-header">
+          <h2 id="briefing-title" class="modal-title">Kestrel-28 STOL Flight Deck</h2>
+          <p class="modal-subtitle">WARA RWY 09/27 &amp; WAKB RWY 14/32</p>
+        </div>
+
+        <div class="sortie-grid" role="group" aria-label="Select Sortie Mission">
+          <button type="button" class="sortie-btn is-selected" data-mission-index="0" aria-pressed="true">
+            <span class="sortie-btn-name">01. Karang to Kaldera Cargo</span>
+            <span class="sortie-btn-meta">Golden Hour | 5 Gates | Land WAKB RWY 14</span>
+          </button>
+          <button type="button" class="sortie-btn" data-mission-index="1" aria-pressed="false">
+            <span class="sortie-btn-name">02. Selat Angin Gorge Slalom</span>
+            <span class="sortie-btn-meta">Tradewind | 6 Canyon Rings | Land WARA RWY 27</span>
+          </button>
+          <button type="button" class="sortie-btn" data-mission-index="2" aria-pressed="false">
+            <span class="sortie-btn-name">03. Squall Coastal Airdrop</span>
+            <span class="sortie-btn-meta">21 KT Crosswind | 2 Flare Drops | Land RWY 27</span>
+          </button>
+          <button type="button" class="sortie-btn" data-mission-index="3" aria-pressed="false">
+            <span class="sortie-btn-name">04. Twilight Beacon Approach</span>
+            <span class="sortie-btn-meta">26% Reserve Fuel | PAPI Slope | Land RWY 09</span>
+          </button>
+        </div>
+
+        <p id="selected-mission-brief" class="briefing-copy">
+          Depart the Karang Jaya RWY 09 corridor with medical cargo, hold 65-75% cruise throttle to conserve fuel across Selat Angin, and land to a full stop on highland Kaldera Timur RWY 14.
+        </p>
+
+        <div class="controls-summary" aria-label="Keyboard Flight Controls">
+          <div><strong>W / S</strong> or <strong>Arrows</strong>: Pitch Nose</div>
+          <div><strong>A / D</strong> or <strong>Left / Right</strong>: Roll Bank</div>
+          <div><strong>Q / E</strong>: Rudder Yaw</div>
+          <div><strong>Shift / Ctrl</strong>: Throttle %</div>
+          <div><strong>F</strong>: STOL Flaps | <strong>B</strong>: Brakes</div>
+          <div><strong>C</strong>: Cockpit / Chase | <strong>Space</strong>: Drop</div>
+        </div>
+
+        <!-- Session Sortie Logbook with Honest Empty State (R-27) -->
+        <div class="logbook-box">
+          <h3 class="logbook-heading">Session Flight Logbook</h3>
+          <p id="flight-log-empty" class="logbook-empty">
+            No completed landings recorded in this session yet. Launch a sortie and stop on the target runway to log sink rate and rollout distance.
+          </p>
+          <ul id="flight-log-list" class="logbook-list" hidden></ul>
+        </div>
+
+        <div class="modal-actions">
+          <button type="button" id="btn-launch-sortie" class="primary-cta">Launch Sortie</button>
+        </div>
+      </div>
+    </div>
+
+    <!-- Crash Forensic Telemetry Overlay -->
+    <div id="crash-modal" class="avionics-modal" role="dialog" aria-modal="true" aria-labelledby="crash-title" hidden>
+      <div class="modal-card alert-border">
+        <div class="modal-header">
+          <h2 id="crash-title" class="modal-title">Flight Incident Telemetry</h2>
+          <p id="crash-cause" class="modal-subtitle">Impact Detected</p>
+        </div>
+        <p id="crash-detail" class="briefing-copy"></p>
+        <dl class="telemetry-dl">
+          <div>
+            <dt>IMPACT AIRSPEED</dt>
+            <dd id="crash-speed">0 KTS</dd>
+          </div>
+          <div>
+            <dt>VERTICAL SPEED</dt>
+            <dd id="crash-sink">0 FPM</dd>
+          </div>
+          <div>
+            <dt>ATTITUDE AT IMPACT</dt>
+            <dd id="crash-attitude">Pitch 0 deg / Roll 0 deg</dd>
+          </div>
+          <div>
+            <dt>FUEL ON BOARD</dt>
+            <dd id="crash-fuel">0%</dd>
+          </div>
+        </dl>
+        <div class="modal-actions">
+          <button type="button" id="btn-crash-deck" class="deck-btn">Sortie Deck</button>
+          <button type="button" id="btn-crash-retry" class="primary-cta">Refly Sortie [R]</button>
+        </div>
+      </div>
+    </div>
+
+    <!-- Mission Complete Debrief Overlay -->
+    <div id="complete-modal" class="avionics-modal" role="dialog" aria-modal="true" aria-labelledby="complete-title" hidden>
+      <div class="modal-card">
+        <div class="modal-header">
+          <h2 id="complete-title" class="modal-title">Sortie Debrief: Runway Full Stop</h2>
+          <p id="complete-rank" class="modal-subtitle">GOLD WINGS</p>
+        </div>
+        <dl class="telemetry-dl">
+          <div>
+            <dt>TOUCHDOWN RATING</dt>
+            <dd id="complete-rating">SMOOTH STOL TOUCHDOWN</dd>
+          </div>
+          <div>
+            <dt>TOUCHDOWN SINK RATE</dt>
+            <dd id="complete-sink">-140 FPM</dd>
+          </div>
+          <div>
+            <dt>STOPPING DISTANCE</dt>
+            <dd id="complete-stop">170 m</dd>
+          </div>
+          <div>
+            <dt>FUEL RESERVE</dt>
+            <dd id="complete-fuel">50%</dd>
+          </div>
+        </dl>
+        <div class="modal-actions">
+          <button type="button" id="btn-complete-deck" class="deck-btn">Mission Select</button>
+          <button type="button" id="btn-next-sortie" class="primary-cta">Fly Next Sortie</button>
+        </div>
+      </div>
+    </div>
+
+    <p id="sr-status" class="sr-only" role="status" aria-live="polite"></p>
+  </main>
+
+  <footer id="deck-footer">
+    <span>KESTREL-28 STOL // ATOLWING EFIS</span>
+  </footer>
+
+  <script type="module" src="./src/gameEngine.js"></script>
+</body>
+</html>

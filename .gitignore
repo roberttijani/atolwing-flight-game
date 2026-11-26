@@ -1,0 +1,22 @@
+# Local output, logs, node_modules, and temporary test directories
+out/
+output/
+out_*/
+node_modules/
+tmp/
+temp/
+*.log
+*.tar.gz
+transcripts*
+system_prompt*.md
+mcp_servers*.json
+.DS_Store
+Thumbs.db
+
+# Unpacked make.fun competition kit files (not part of the entry repository)
+cli/
+harness/
+starter/
+competition.yaml
+kit.json
+RULES.txt
