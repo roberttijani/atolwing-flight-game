@@ -1,30 +1,5 @@
-// Main 3D simulation engine, UI state manager, sortie logbook, and deterministic showcase scene staging.
+// Main 3D simulation engine, PBR real-time shadow renderer, 3-aircraft fleet switcher, 6 sorties, and v3 showcase staging.
 import * as THREE from '../vendor/three.min.js';
-import {
-  createFlightState,
-  resetAircraftAtSpawn,
-  setQuaternionFromAttitude,
-  stepFlightPhysics,
-} from './flightPhysics.js';
-import { buildArchipelagoWorld, updateOceanWaves } from './terrainWorld.js';
-import {
-  buildAerodromesAndRings,
-  rebuildMissionRings,
-  updateRunwayAidsAndRings,
-} from './runwayAndRings.js';
-import { buildAircraftMesh, updateAircraftAnimations } from './aircraftModel.js';
-import {
-  createCameraRig,
-  snapCameraRig,
-  toggleCameraMode,
-  updateCameraRig,
-} from './cameraRig.js';
-import {
-  applyMissionWeather,
-  createWeatherSystem,
-  sampleWindAtPosition,
-  updateWeatherVisuals,
-} from './weatherSystem.js';
 import {
   MISSIONS,
   createMissionState,
@@ -32,10 +7,31 @@ import {
   updateMissionProgress,
 } from './missionManager.js';
 import {
+  applyMissionWeather,
+  createWeatherSystem,
+  sampleWindAtPosition,
+  updateWeatherVisuals,
+} from './weatherSystem.js';
+import {
+  applyAircraftProfile,
+  createFlightState,
+  resetAircraftAtSpawn,
+  setQuaternionFromAttitude,
+  stepFlightPhysics,
+} from './flightPhysics.js';
+import {
   createCockpitHud,
   renderCockpitHud,
   resizeCockpitHud,
 } from './cockpitHud.js';
+import { FlightAudioSynth } from './audioSynth.js';
+import {
+  createCameraRig,
+  snapCameraRig,
+  toggleCameraMode,
+  updateCameraRig,
+} from './cameraRig.js';
+import { createInputController, samplePilotControls } from './inputController.js';
 import {
   clearParticles,
   createParticleSystem,
@@ -44,8 +40,17 @@ import {
   spawnTireSmoke,
   updateParticles,
 } from './particleEffects.js';
-import { FlightAudioSynth } from './audioSynth.js';
-import { createInputController, samplePilotControls } from './inputController.js';
+import {
+  buildArchipelagoWorld,
+  syncOceanWithWeather,
+  updateOceanWaves,
+} from './terrainWorld.js';
+import {
+  buildAerodromesAndRings,
+  rebuildMissionRings,
+  updateRunwayAidsAndRings,
+} from './runwayAndRings.js';
+import { buildAircraftMesh, updateAircraftAnimations } from './aircraftModel.js';
 
 const FIXED_DT = 1 / 60;
 
@@ -56,23 +61,23 @@ export function stageShowcaseScene(shotName, ctx) {
     weather,
     aids,
     particles,
-    aircraft,
     cameraRig,
     worldRefs,
     hud,
     setMission,
+    selectAircraft,
   } = ctx;
 
   if (shotName === 'cover') {
+    selectAircraft('islander', false);
     setMission(0, false);
-    // Offset aircraft slightly south-west & lower so silhouette, target ring, and WARA RWY 09 separate cleanly
     resetAircraftAtSpawn(flightState, {
-      x: -2295,
-      y: 52,
-      z: 235,
-      headingDeg: 86.5,
-      pitchDeg: 2.2,
-      rollDeg: -11,
+      x: -2290,
+      y: 50,
+      z: 242,
+      headingDeg: 85.0,
+      pitchDeg: 2.0,
+      rollDeg: -12,
       airspeedKts: 94,
       throttle: 0.68,
       flapIndex: 1,
@@ -81,50 +86,55 @@ export function stageShowcaseScene(shotName, ctx) {
       onGround: false,
     });
     if (aids.ringInstances[0]) {
-      aids.ringInstances[0].holder.position.set(-2075, 58, 214);
-      aids.ringInstances[0].holder.scale.setScalar(0.88);
+      aids.ringInstances[0].holder.position.set(-2015, 62, 194);
+      aids.ringInstances[0].holder.scale.setScalar(0.84);
     }
     toggleCameraMode(cameraRig, 'chase');
-    cameraRig.orbitYaw = 0.16;
-    cameraRig.orbitPitch = 0.13;
+    cameraRig.orbitYaw = 0.22;
+    cameraRig.orbitPitch = 0.14;
     snapCameraRig(cameraRig, flightState);
     flightState.gLoad = 1.1;
     flightState.verticalSpeedFpm = -320;
   } else if (shotName === 'cockpit') {
-    setMission(0, false);
+    selectAircraft('islander', false);
+    setMission(4, false); // Sortie 05: Volcanic Thermal Rescue facing smoking Mount Bara caldera & golden ocean
+    applyMissionWeather(weather, scene, 'volcanic');
+    syncOceanWithWeather(worldRefs, weather);
     resetAircraftAtSpawn(flightState, {
-      x: -735,
-      y: 140,
-      z: 132,
-      headingDeg: 79,
-      pitchDeg: 2.2,
-      rollDeg: 9,
+      x: 1125,
+      y: 266,
+      z: -485,
+      headingDeg: 68,
+      pitchDeg: -2.2,
+      rollDeg: -8,
       airspeedKts: 108,
       throttle: 0.72,
       flapIndex: 0,
       fuelPct: 76,
-      sinkMps: -0.6,
+      sinkMps: 0.9,
       onGround: false,
     });
-    if (aids.ringInstances[0]) aids.ringInstances[0].captured = true;
-    if (aids.ringInstances[1]) aids.ringInstances[1].captured = true;
-    ctx.missionState.ringsCaptured = 2;
-    ctx.missionState.activeRingIndex = 2;
+    if (aids.ringInstances[0]) {
+      aids.ringInstances[0].holder.position.set(1455, 272, -578);
+    }
     toggleCameraMode(cameraRig, 'cockpit');
     snapCameraRig(cameraRig, flightState);
-    flightState.controlRoll = 0.16;
-    flightState.gLoad = 1.2;
+    flightState.controlRoll = -0.14;
+    flightState.gLoad = 1.1;
+    flightState.verticalSpeedFpm = 180;
   } else if (shotName === 'action') {
+    // Showcase agile VX-9 Peregrine Recon banking hard through tropical squall over South Cove LZ
+    selectAircraft('peregrine', false);
     setMission(2, false);
     applyMissionWeather(weather, scene, 'storm');
-    // Coordinated high-bank squall turn with realistic telemetry (118 KTS, G 2.4, VS -780 FPM)
+    syncOceanWithWeather(worldRefs, weather);
     resetAircraftAtSpawn(flightState, {
-      x: 345,
-      y: 136,
-      z: 1250,
-      headingDeg: 226,
-      pitchDeg: 3.4,
-      rollDeg: 37,
+      x: 358,
+      y: 132,
+      z: 1236,
+      headingDeg: 222,
+      pitchDeg: 2.2,
+      rollDeg: 36,
       airspeedKts: 118,
       throttle: 0.79,
       flapIndex: 1,
@@ -136,45 +146,45 @@ export function stageShowcaseScene(shotName, ctx) {
     flightState.groundSpeedKts = 109;
     flightState.verticalSpeedFpm = -780;
     flightState.controlRoll = 0.28;
-    flightState.controlPitch = 0.22;
+    flightState.controlPitch = 0.20;
     flightState.stallWarning = false;
     flightState.terrainPullUp = false;
 
     if (aids.ringInstances[0]) {
-      aids.ringInstances[0].holder.position.set(190, 118, 1385);
-      aids.ringInstances[0].holder.rotation.y = -(228 * Math.PI) / 180;
+      aids.ringInstances[0].holder.position.set(132, 118, 1418);
+      aids.ringInstances[0].holder.rotation.y = -(224 * Math.PI) / 180;
     }
-    spawnAirdropCanister(particles, new THREE.Vector3(275, 96, 1322));
+    spawnAirdropCanister(particles, new THREE.Vector3(286, 88, 1328));
 
-    // Seed smooth curved wingtip vortex ribbons along the preceding coordinated turn arc
+    const wt = flightState.aircraftSpec.wingtipOffset;
     particles.leftTrailPts = [];
     particles.rightTrailPts = [];
     const q = new THREE.Quaternion();
-    for (let s = 32; s >= 0; s -= 1) {
-      const tBack = s * 0.032;
-      const hdgS = 226 - s * 0.52;
+    for (let s = 18; s >= 0; s -= 1) {
+      const tBack = s * 0.024;
+      const hdgS = 222 - s * 0.65;
       const hRad = (hdgS * Math.PI) / 180;
-      setQuaternionFromAttitude(q, hdgS, 3.4, 37);
+      setQuaternionFromAttitude(q, hdgS, 2.2, 36);
       const posS = new THREE.Vector3(
-        flightState.position.x - Math.sin(hRad) * 58 * tBack,
-        flightState.position.y + 3.95 * tBack,
-        flightState.position.z + Math.cos(hRad) * 58 * tBack,
+        flightState.position.x - Math.sin(hRad) * 54 * tBack,
+        flightState.position.y + 3.4 * tBack,
+        flightState.position.z + Math.cos(hRad) * 54 * tBack,
       );
-      particles.leftTrailPts.push(
-        new THREE.Vector3(-7.95, 1.18, 0.65).applyQuaternion(q).add(posS),
-      );
-      particles.rightTrailPts.push(
-        new THREE.Vector3(7.95, 1.18, 0.65).applyQuaternion(q).add(posS),
-      );
+      particles.leftTrailPts.push(new THREE.Vector3(-wt.x, wt.y, wt.z).applyQuaternion(q).add(posS));
+      particles.rightTrailPts.push(new THREE.Vector3(wt.x, wt.y, wt.z).applyQuaternion(q).add(posS));
     }
     particles.leftTrailGeo.setFromPoints(particles.leftTrailPts);
     particles.rightTrailGeo.setFromPoints(particles.rightTrailPts);
 
     toggleCameraMode(cameraRig, 'chase');
+    cameraRig.orbitYaw = -0.14;
+    cameraRig.orbitPitch = 0.08;
     snapCameraRig(cameraRig, flightState);
   } else if (shotName === 'touchdown') {
+    selectAircraft('islander', false);
     setMission(3, false);
     applyMissionWeather(weather, scene, 'golden');
+    syncOceanWithWeather(worldRefs, weather);
     for (let r = 0; r < aids.ringInstances.length; r += 1) {
       aids.ringInstances[r].captured = true;
       aids.ringInstances[r].holder.visible = false;
@@ -183,11 +193,11 @@ export function stageShowcaseScene(shotName, ctx) {
     ctx.missionState.activeRingIndex = ctx.missionState.totalRings;
 
     resetAircraftAtSpawn(flightState, {
-      x: -1924,
+      x: -1935,
       y: 20.35,
       z: 221.2,
       headingDeg: 90,
-      pitchDeg: 4.2,
+      pitchDeg: 4.0,
       rollDeg: 0,
       airspeedKts: 62,
       throttle: 0.12,
@@ -196,7 +206,7 @@ export function stageShowcaseScene(shotName, ctx) {
       brakes: true,
       onGround: true,
     });
-    setQuaternionFromAttitude(flightState.quaternion, 90, 4.2, 0);
+    setQuaternionFromAttitude(flightState.quaternion, 90, 4.0, 0);
     flightState.touchdownActive = true;
     flightState.rolloutDistanceM = 168;
     flightState.lastLandingCard = {
@@ -212,12 +222,11 @@ export function stageShowcaseScene(shotName, ctx) {
     };
     toggleCameraMode(cameraRig, 'chase');
     cameraRig.orbitYaw = -0.14;
-    cameraRig.orbitPitch = 0.13;
+    cameraRig.orbitPitch = 0.14;
     snapCameraRig(cameraRig, flightState);
 
-    // Seed soft radial sprite tire smoke plumes dispersing naturally behind main wheels
-    for (let s = 0; s < 26; s += 1) {
-      const trailPos = new THREE.Vector3(-1925 - s * 1.65, 20.35, 221.2);
+    for (let s = 0; s < 24; s += 1) {
+      const trailPos = new THREE.Vector3(-1936 - s * 1.55, 20.35, 221.2);
       spawnTireSmoke(particles, trailPos, flightState.quaternion, 2);
       updateParticles(particles, flightState, 0.036);
     }
@@ -226,11 +235,12 @@ export function stageShowcaseScene(shotName, ctx) {
   const elapsed = 18.4;
   sampleWindAtPosition(weather, flightState.position, elapsed);
   updateWeatherVisuals(weather, flightState.position, elapsed, FIXED_DT);
+  syncOceanWithWeather(worldRefs, weather);
   updateOceanWaves(worldRefs, elapsed);
   const mView = getMissionHudView(ctx.missionState, flightState, aids);
   updateRunwayAidsAndRings(aids, flightState.position, ctx.missionState.activeRingIndex, weather, elapsed);
-  updateAircraftAnimations(aircraft, flightState, cameraRig.mode, mView, weather, elapsed);
-  renderCockpitHud(hud, flightState, mView, weather, cameraRig.mode, elapsed);
+  updateAircraftAnimations(ctx.aircraft, flightState, cameraRig.mode, mView, weather, elapsed, worldRefs, aids);
+  renderCockpitHud(hud, flightState, mView, weather, cameraRig.mode, elapsed, worldRefs, aids);
 }
 
 export function bootFlightGame() {
@@ -241,6 +251,7 @@ export function bootFlightGame() {
   const briefingDialog = document.getElementById('briefing-modal');
   const crashDialog = document.getElementById('crash-modal');
   const completeDialog = document.getElementById('complete-modal');
+  const footerTagEl = document.getElementById('deck-footer-label');
   const srStatus = document.getElementById('sr-status');
 
   let renderer;
@@ -263,14 +274,17 @@ export function bootFlightGame() {
   }
 
   renderer.setPixelRatio(Math.min(window.devicePixelRatio || 1, 2));
+  renderer.outputColorSpace = THREE.SRGBColorSpace;
   renderer.toneMapping = THREE.ACESFilmicToneMapping;
-  renderer.toneMappingExposure = 1.06;
+  renderer.toneMappingExposure = 1.05;
+  renderer.shadowMap.enabled = true;
+  renderer.shadowMap.type = THREE.PCFSoftShadowMap;
 
   const scene = new THREE.Scene();
   const weather = createWeatherSystem(scene);
   const worldRefs = buildArchipelagoWorld(scene);
   const aids = buildAerodromesAndRings(scene);
-  const aircraft = buildAircraftMesh();
+  let aircraft = buildAircraftMesh('islander');
   scene.add(aircraft.aircraftRoot);
   const particles = createParticleSystem(scene);
 
@@ -284,7 +298,7 @@ export function bootFlightGame() {
   const hud = createCockpitHud(hudCanvas);
   const audio = new FlightAudioSynth();
   const input = createInputController(flightCanvas);
-  const flightState = createFlightState();
+  const flightState = createFlightState('islander');
 
   const sortieLog = [];
   let missionState = createMissionState(0);
@@ -297,10 +311,13 @@ export function bootFlightGame() {
     const brakeBtn = document.getElementById('btn-brakes');
     const muteBtn = document.getElementById('btn-mute');
     const pauseBtn = document.getElementById('btn-pause');
-
     const toolbar = document.getElementById('deck-header');
+
     if (toolbar) {
       toolbar.classList.toggle('cockpit-docked', cameraRig.mode === 'cockpit');
+    }
+    if (footerTagEl) {
+      footerTagEl.textContent = `${flightState.aircraftSpec.shortLabel} // ATOLWING EFIS`;
     }
     if (camBtn) {
       camBtn.textContent = cameraRig.mode === 'cockpit' ? 'Cam: Cockpit [C]' : 'Cam: Chase [C]';
@@ -340,22 +357,45 @@ export function bootFlightGame() {
     for (let i = sortieLog.length - 1; i >= 0; i -= 1) {
       const entry = sortieLog[i];
       const li = document.createElement('li');
-      li.textContent = `${entry.missionTitle}: ${entry.landingRating} (${entry.sinkRateFpm} FPM, stop ${entry.stoppingDistanceM} m, ${entry.totalScore} pts)`;
+      li.textContent = `${entry.aircraftName} | ${entry.missionTitle}: ${entry.landingRating} (${entry.sinkRateFpm} FPM, stop ${entry.stoppingDistanceM} m, ${entry.totalScore} pts)`;
       listEl.appendChild(li);
     }
   };
 
   const syncBriefingCards = () => {
-    const cards = document.querySelectorAll('[data-mission-index]');
-    cards.forEach((btn) => {
+    document.querySelectorAll('[data-mission-index]').forEach((btn) => {
       const idx = Number(btn.getAttribute('data-mission-index'));
       const selected = idx === missionState.missionIndex;
       btn.classList.toggle('is-selected', selected);
       btn.setAttribute('aria-pressed', String(selected));
     });
+    document.querySelectorAll('[data-aircraft-id]').forEach((btn) => {
+      const id = btn.getAttribute('data-aircraft-id');
+      const selected = id === flightState.aircraftId;
+      btn.classList.toggle('is-selected', selected);
+      btn.setAttribute('aria-pressed', String(selected));
+    });
     const descEl = document.getElementById('selected-mission-brief');
     if (descEl) {
-      descEl.textContent = missionState.mission.briefing;
+      descEl.textContent = `${flightState.aircraftSpec.name} (${flightState.aircraftSpec.registration}): ${missionState.mission.briefing}`;
+    }
+  };
+
+  const selectAircraft = (aircraftId, announce = true) => {
+    if (flightState.aircraftId === aircraftId && aircraft.spec.id === aircraftId) {
+      syncBriefingCards();
+      updateToolbarLabels();
+      return;
+    }
+    scene.remove(aircraft.aircraftRoot);
+    applyAircraftProfile(flightState, aircraftId);
+    aircraft = buildAircraftMesh(aircraftId);
+    scene.add(aircraft.aircraftRoot);
+    resetAircraftAtSpawn(flightState, missionState.mission.spawn);
+    syncBriefingCards();
+    updateToolbarLabels();
+    if (announce && srStatus) {
+      srStatus.textContent = `Selected aircraft ${flightState.aircraftSpec.name}.`;
     }
   };
 
@@ -392,6 +432,7 @@ export function bootFlightGame() {
     const m = missionState.mission;
 
     applyMissionWeather(weather, scene, m.weatherPreset);
+    syncOceanWithWeather(worldRefs, weather);
     rebuildMissionRings(aids, m.rings, m.dropZones);
     clearParticles(particles);
     resetAircraftAtSpawn(flightState, m.spawn);
@@ -420,12 +461,17 @@ export function bootFlightGame() {
   window.addEventListener('resize', handleResize);
   handleResize();
 
-  // Wire semantic UI controls
+  document.querySelectorAll('[data-aircraft-id]').forEach((btn) => {
+    btn.addEventListener('click', () => {
+      audio.initAudio();
+      selectAircraft(btn.getAttribute('data-aircraft-id'), true);
+    });
+  });
+
   document.querySelectorAll('[data-mission-index]').forEach((btn) => {
     btn.addEventListener('click', () => {
       audio.initAudio();
-      const idx = Number(btn.getAttribute('data-mission-index'));
-      setMission(idx, true);
+      setMission(Number(btn.getAttribute('data-mission-index')), true);
     });
   });
 
@@ -491,12 +537,15 @@ export function bootFlightGame() {
     setMission(missionState.missionIndex, true);
   });
 
-  // Check optional URL query params (?mission=1..4 or ?shot=cover|cockpit|action|touchdown)
   const params = new URLSearchParams(window.location.search);
   const requestedMission = params.get('mission');
+  const requestedAircraft = params.get('aircraft');
   const shotParam = params.get('shot');
 
-  const initialMissionIdx = requestedMission ? Math.max(0, Math.min(3, Number(requestedMission) - 1)) : 0;
+  if (requestedAircraft) {
+    selectAircraft(requestedAircraft, false);
+  }
+  const initialMissionIdx = requestedMission ? Math.max(0, Math.min(MISSIONS.length - 1, Number(requestedMission) - 1)) : 0;
   setMission(initialMissionIdx, !shotParam);
   renderLogbookDom();
 
@@ -506,23 +555,25 @@ export function bootFlightGame() {
     paused = true;
     if (briefingDialog) briefingDialog.hidden = true;
     const toolbar = document.getElementById('deck-header');
-    if (toolbar) {
-      toolbar.classList.add('is-compact');
-    }
+    if (toolbar) toolbar.classList.add('is-compact');
+
     const ctx = {
       scene,
       flightState,
       weather,
       aids,
       particles,
-      aircraft,
       cameraRig,
       worldRefs,
       hud,
+      get aircraft() {
+        return aircraft;
+      },
       get missionState() {
         return missionState;
       },
       setMission,
+      selectAircraft,
     };
     stageShowcaseScene(shotParam, ctx);
     renderer.render(scene, cameraRig.camera);
@@ -530,7 +581,6 @@ export function bootFlightGame() {
     return;
   }
 
-  // Main real-time simulation loop with fixed-step physics accumulator
   let lastTimeMs = performance.now();
   let accumulator = 0;
 
@@ -540,9 +590,7 @@ export function bootFlightGame() {
     lastTimeMs = nowMs;
 
     const controls = samplePilotControls(input);
-    if (controls.hadInteraction) {
-      audio.initAudio();
-    }
+    if (controls.hadInteraction) audio.initAudio();
 
     const look = input.consumeLookDelta();
     cameraRig.orbitYaw = Math.max(-1.1, Math.min(1.1, cameraRig.orbitYaw - look.dx));
@@ -612,7 +660,6 @@ export function bootFlightGame() {
       }
       updateToolbarLabels();
     } else {
-      // Gentle ambient ocean/cloud animation while briefing deck is open
       elapsedSec += frameDt * (cameraRig.reducedMotion ? 0 : 0.35);
       sampleWindAtPosition(weather, flightState.position, elapsedSec);
       updateWeatherVisuals(weather, flightState.position, elapsedSec, 0);
@@ -622,9 +669,9 @@ export function bootFlightGame() {
 
     const mView = getMissionHudView(missionState, flightState, aids);
     updateRunwayAidsAndRings(aids, flightState.position, missionState.activeRingIndex, weather, elapsedSec);
-    updateAircraftAnimations(aircraft, flightState, cameraRig.mode, mView, weather, elapsedSec);
+    updateAircraftAnimations(aircraft, flightState, cameraRig.mode, mView, weather, elapsedSec, worldRefs, aids);
     audio.updateFlightAudio(flightState, paused, elapsedSec);
-    renderCockpitHud(hud, flightState, mView, weather, cameraRig.mode, elapsedSec);
+    renderCockpitHud(hud, flightState, mView, weather, cameraRig.mode, elapsedSec, worldRefs, aids);
     renderer.render(scene, cameraRig.camera);
     window.__ATOLWING_READY = true;
   };

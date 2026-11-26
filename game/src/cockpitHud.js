@@ -1,5 +1,6 @@
-// High-contrast sunlit-readable EFIS HUD: pitch ladder, airspeed/altitude/heading tapes, wind, fuel, damage, and touchdown telemetry.
+// High-contrast sunlit-readable EFIS HUD with Tactical Terrain Mini-Radar, subsystem telemetry, and landing readout card.
 import { FLAP_ANGLES_DEG } from './flightPhysics.js';
+import { RUNWAY_SPECS, TERRAIN_SPAN } from './terrainWorld.js';
 
 const SLATE_BG = 'rgba(9, 17, 26, 0.86)';
 const SLATE_SOLID = '#0b141e';
@@ -71,7 +72,6 @@ function drawHeadingTape(ctx, cx, topY, headingDeg, bearingDeg, cameraMode) {
     ctx.lineTo(tx, topY + h - 2);
     ctx.stroke();
 
-    // Prevent two-character heading numbers (e.g. '12', '06') from clipping at left/right tape edges
     if (norm % 30 === 0 && Math.abs(tx - cx) <= w * 0.5 - 22) {
       const card =
         norm === 0 ? 'N' : norm === 90 ? 'E' : norm === 180 ? 'S' : norm === 270 ? 'W' : String(norm / 10).padStart(2, '0');
@@ -80,7 +80,6 @@ function drawHeadingTape(ctx, cx, topY, headingDeg, bearingDeg, cameraMode) {
     }
   }
 
-  // Waypoint bearing bug on heading tape
   if (typeof bearingDeg === 'number') {
     let bDiff = bearingDeg - headingDeg;
     while (bDiff > 180) bDiff -= 360;
@@ -96,7 +95,6 @@ function drawHeadingTape(ctx, cx, topY, headingDeg, bearingDeg, cameraMode) {
   }
   ctx.restore();
 
-  // Digital heading readout box centered above lubber tick
   const hdgText = `${String(Math.round(headingDeg) % 360).padStart(3, '0')}°`;
   drawBevelPanel(ctx, cx - 38, topY + h + 3, 76, 24, AMBER, SLATE_SOLID);
   ctx.fillStyle = PHOSPHOR;
@@ -104,7 +102,6 @@ function drawHeadingTape(ctx, cx, topY, headingDeg, bearingDeg, cameraMode) {
   ctx.textAlign = 'center';
   ctx.fillText(hdgText, cx, topY + h + 20);
 
-  // Camera mode indicator badge beside heading readout
   const camLabel = cameraMode === 'cockpit' ? '3D COCKPIT [C]' : 'CHASE CAM [C]';
   drawBevelPanel(ctx, cx + 46, topY + h + 3, 118, 24, BORDER_CYAN, SLATE_BG);
   ctx.fillStyle = CRISP_WHITE;
@@ -125,7 +122,6 @@ function drawArtificialHorizon(ctx, cx, cy, flightState) {
   const pxPerPitchDeg = 4.4;
   const pitchY = flightState.pitchDeg * pxPerPitchDeg;
 
-  // Horizon line (subtle translucent wings so 3D aircraft & target ring remain crystal clear!)
   ctx.strokeStyle = 'rgba(90, 242, 184, 0.85)';
   ctx.lineWidth = 2.0;
   ctx.beginPath();
@@ -135,7 +131,6 @@ function drawArtificialHorizon(ctx, cx, cy, flightState) {
   ctx.lineTo(118, pitchY);
   ctx.stroke();
 
-  // Pitch ladder rungs (-25 to +25 deg)
   ctx.font = 'bold 11px Consolas, monospace';
   ctx.fillStyle = PHOSPHOR;
   for (let p = -30; p <= 30; p += 10) {
@@ -150,7 +145,6 @@ function drawArtificialHorizon(ctx, cx, cy, flightState) {
     ctx.lineTo(-24, ry);
     ctx.moveTo(24, ry);
     ctx.lineTo(54, ry);
-    // Vertical tick tips pointing toward horizon
     const tip = p > 0 ? 5 : -5;
     ctx.moveTo(-54, ry);
     ctx.lineTo(-54, ry + tip);
@@ -166,7 +160,6 @@ function drawArtificialHorizon(ctx, cx, cy, flightState) {
   }
   ctx.restore();
 
-  // Fixed aircraft boresight reference symbol ("- v -")
   ctx.strokeStyle = AMBER;
   ctx.lineWidth = 2.8;
   ctx.beginPath();
@@ -178,7 +171,6 @@ function drawArtificialHorizon(ctx, cx, cy, flightState) {
   ctx.lineTo(cx + 5, cy + 5);
   ctx.stroke();
 
-  // Flight-path velocity vector (FPV) indicator showing true climb/sink angle
   const gammaDeg =
     flightState.airspeedMps > 5
       ? (Math.asin(Math.max(-1, Math.min(1, flightState.velocity.y / flightState.airspeedMps))) * 180) / Math.PI
@@ -219,10 +211,11 @@ function drawSpeedTape(ctx, leftX, centerY, flightState) {
 
   const kts = flightState.airspeedKts;
   const pxPerKt = 2.4;
-  const stallKts = 53 - flightState.flapNorm * 11;
-  const redlineKts = flightState.flapIndex === 2 ? 118 : flightState.flapIndex === 1 ? 142 : 196;
+  const cleanStall = flightState.aircraftSpec?.stallCleanKts ?? 53;
+  const redline = flightState.aircraftSpec?.redlineKts ?? 196;
+  const stallKts = cleanStall - flightState.flapNorm * 11;
+  const redlineKts = flightState.flapIndex === 2 ? 122 : flightState.flapIndex === 1 ? 148 : redline;
 
-  // Stall low-speed red band & overspeed high band on right spine
   const stallY = centerY + (kts - stallKts) * pxPerKt;
   if (stallY < topY + h) {
     ctx.fillStyle = 'rgba(242, 92, 59, 0.75)';
@@ -254,14 +247,12 @@ function drawSpeedTape(ctx, leftX, centerY, flightState) {
   }
   ctx.restore();
 
-  // Highlighted current speed drum box
   drawBevelPanel(ctx, leftX + 4, centerY - 17, w - 12, 34, AMBER, SLATE_SOLID);
   ctx.fillStyle = PHOSPHOR;
   ctx.font = 'bold 20px Consolas, "Cascadia Mono", monospace';
   ctx.textAlign = 'center';
   ctx.fillText(`${Math.round(kts)}`, leftX + (w - 8) * 0.5, centerY + 7);
 
-  // G-load footer readout
   ctx.fillStyle = Math.abs(flightState.gLoad) > 3.6 ? AMBER : CRISP_WHITE;
   ctx.font = 'bold 12px Consolas, monospace';
   ctx.textAlign = 'left';
@@ -316,7 +307,6 @@ function drawAltitudeTape(ctx, rightX, centerY, flightState) {
   ctx.textAlign = 'center';
   ctx.fillText(`${Math.round(alt)}`, leftX + 8 + (w - 12) * 0.5, centerY + 7);
 
-  // VSI & Radar Altitude below tape
   const vsi = Math.round(flightState.verticalSpeedFpm / 10) * 10;
   const vsiSign = vsi > 0 ? `+${vsi}` : `${vsi}`;
   ctx.fillStyle = vsi < -700 ? ALERT_RED : CRISP_WHITE;
@@ -328,8 +318,7 @@ function drawAltitudeTape(ctx, rightX, centerY, flightState) {
 }
 
 function drawWindAndSystems(ctx, width, height, flightState, weather, cameraMode) {
-  // Top-left Wind Vector & Weather Pod
-  drawBevelPanel(ctx, 18, 16, 214, 62);
+  drawBevelPanel(ctx, 18, 16, 224, 62);
   const wx = 48;
   const wy = 47;
   ctx.strokeStyle = BORDER_CYAN;
@@ -338,7 +327,6 @@ function drawWindAndSystems(ctx, width, height, flightState, weather, cameraMode
   ctx.arc(wx, wy, 19, 0, Math.PI * 2);
   ctx.stroke();
 
-  // Wind arrow relative to aircraft nose (up = headwind from ahead, down = tailwind)
   const relWindRad = (((weather.currentWindFromDeg - flightState.headingDeg + 180) % 360) * Math.PI) / 180;
   ctx.save();
   ctx.translate(wx, wy);
@@ -366,10 +354,9 @@ function drawWindAndSystems(ctx, width, height, flightState, weather, cameraMode
   ctx.font = '11px Bahnschrift, "Segoe UI", sans-serif';
   ctx.fillText(weather.preset.label, 76, 58);
 
-  // Engine, Fuel, Damage & Flaps cluster (sized in 3D Cockpit mode so all 3 physical 3D EFIS screens stay 100% uncovered)
-  const sysY = cameraMode === 'cockpit' ? height - 144 : height - 148;
-  const sysW = cameraMode === 'cockpit' ? 212 : 248;
-  const sysH = 128;
+  const sysY = cameraMode === 'cockpit' ? height - 150 : height - 154;
+  const sysW = cameraMode === 'cockpit' ? 212 : 252;
+  const sysH = 134;
   drawBevelPanel(ctx, 16, sysY, sysW, sysH);
 
   const drawBar = (label, valueText, ratio, yOff, barColor, sweetSpot = false) => {
@@ -384,39 +371,46 @@ function drawWindAndSystems(ctx, width, height, flightState, weather, cameraMode
     const by = sysY + yOff + 5;
     const bw = sysW - 18;
     ctx.fillStyle = '#162636';
-    ctx.fillRect(bx, by, bw, 9);
+    ctx.fillRect(bx, by, bw, 8);
     if (sweetSpot) {
       ctx.fillStyle = 'rgba(90, 242, 184, 0.25)';
-      ctx.fillRect(bx + bw * 0.58, by - 1, bw * 0.18, 11);
+      ctx.fillRect(bx + bw * 0.58, by - 1, bw * 0.18, 10);
     }
     ctx.fillStyle = barColor;
-    ctx.fillRect(bx, by, bw * Math.max(0, Math.min(1, ratio)), 9);
+    ctx.fillRect(bx, by, bw * Math.max(0, Math.min(1, ratio)), 8);
   };
 
-  const thrColor = flightState.throttle > 0.82 ? AMBER : PHOSPHOR;
-  drawBar('THROTTLE', `${Math.round(flightState.throttle * 100)}%`, flightState.throttle, 20, thrColor, true);
+  const thrColor = flightState.throttle > 0.85 ? AMBER : PHOSPHOR;
+  drawBar('THROTTLE', `${Math.round(flightState.throttle * 100)}%`, flightState.throttle, 19, thrColor, true);
 
   const fuelColor = flightState.fuelPct < 20 ? ALERT_RED : PHOSPHOR;
   drawBar(
     'FUEL',
     `${Math.round(flightState.fuelPct)}% (${flightState.fuelFlowKgH} KG/H)`,
     flightState.fuelPct / 100,
-    54,
+    50,
     fuelColor,
   );
 
-  const integrity = Math.max(0, 100 - Math.round(flightState.damagePct));
-  const dmgColor = flightState.damagePct > 35 ? ALERT_RED : flightState.damagePct > 10 ? AMBER : PHOSPHOR;
-  drawBar('AIRFRAME', `${integrity}% OK`, integrity / 100, 88, dmgColor);
+  const integrity = Math.max(0, 100 - Math.round(flightState.airframeDmgPct));
+  const engHealth = Math.max(0, 100 - Math.round(flightState.engineStressPct));
+  const dmgColor = flightState.damagePct > 35 ? ALERT_RED : flightState.damagePct > 12 ? AMBER : PHOSPHOR;
+  drawBar('AIRFRAME / ENG', `${integrity}% / ${engHealth}%`, Math.min(integrity, engHealth) / 100, 81, dmgColor);
 
   const flapDeg = FLAP_ANGLES_DEG[flightState.flapIndex] ?? 0;
   ctx.fillStyle = flapDeg > 0 ? AMBER : CRISP_WHITE;
   ctx.font = 'bold 11px Consolas, monospace';
   ctx.textAlign = 'left';
-  ctx.fillText(`FLAPS: ${flapDeg === 0 ? 'UP' : `${flapDeg}°`}`, 25, sysY + 118);
+  ctx.fillText(`FLAPS: ${flapDeg === 0 ? 'UP' : `${flapDeg}°`}`, 25, sysY + 114);
   ctx.textAlign = 'right';
   ctx.fillStyle = flightState.brakes ? AMBER : CRISP_WHITE;
-  ctx.fillText(`BRK: ${flightState.brakes ? 'ON' : 'OFF'}`, 16 + sysW - 9, sysY + 118);
+  ctx.fillText(`BRK: ${flightState.brakes ? 'ON' : 'OFF'}`, 16 + sysW - 9, sysY + 114);
+
+  // Active aircraft tag at bottom of systems pod
+  ctx.textAlign = 'left';
+  ctx.fillStyle = '#9db7c7';
+  ctx.font = 'bold 10px Consolas, monospace';
+  ctx.fillText(flightState.aircraftSpec?.shortLabel ?? 'ATW-28 ISLANDER', 25, sysY + 128);
 }
 
 function drawMissionDirector(ctx, width, missionView) {
@@ -458,15 +452,154 @@ function drawMissionDirector(ctx, width, missionView) {
   }
 }
 
+export function drawTacticalMiniRadar(ctx, x, y, size, flightState, missionView, weather, worldRefs, aids) {
+  const cx = x + size * 0.5;
+  const cy = y + size * 0.5 + 7;
+  const r = size * 0.5 - 12;
+
+  drawBevelPanel(ctx, x, y, size, size + 16, BORDER_CYAN, 'rgba(7, 15, 23, 0.90)');
+
+  ctx.fillStyle = PHOSPHOR;
+  ctx.font = 'bold 10px Consolas, monospace';
+  ctx.textAlign = 'left';
+  ctx.fillText('TERR RADAR 2NM', x + 8, y + 13);
+  ctx.textAlign = 'right';
+  ctx.fillStyle = AMBER;
+  ctx.fillText('HDG UP', x + size - 8, y + 13);
+
+  const hdgRad = (flightState.headingDeg * Math.PI) / 180;
+  const rangeM = 3500;
+  const scale = r / rangeM;
+
+  ctx.save();
+  ctx.beginPath();
+  ctx.arc(cx, cy, r, 0, Math.PI * 2);
+  ctx.clip();
+
+  ctx.fillStyle = '#071826';
+  ctx.fillRect(cx - r, cy - r, r * 2, r * 2);
+
+  if (worldRefs?.radarMapCanvas) {
+    const drawSize = TERRAIN_SPAN * scale;
+    ctx.save();
+    ctx.translate(cx, cy);
+    ctx.rotate(-hdgRad);
+    ctx.drawImage(
+      worldRefs.radarMapCanvas,
+      -drawSize * 0.5 - flightState.position.x * scale,
+      -drawSize * 0.5 - flightState.position.z * scale,
+      drawSize,
+      drawSize,
+    );
+
+    // Runways & Offshore platform on mini-radar
+    for (let i = 0; i < RUNWAY_SPECS.length; i += 1) {
+      const rw = RUNWAY_SPECS[i];
+      const rx = (rw.centerX - flightState.position.x) * scale;
+      const rz = (rw.centerZ - flightState.position.z) * scale;
+      ctx.save();
+      ctx.translate(rx, rz);
+      ctx.rotate((rw.headingDeg * Math.PI) / 180);
+      const isTarget = missionView?.targetRunwayId === rw.id;
+      ctx.fillStyle = isTarget ? AMBER : '#e6f2fa';
+      ctx.fillRect(-2.2, -7.5, 4.4, 15);
+      ctx.restore();
+    }
+
+    // Active mission route legs & waypoint diamonds
+    if (aids?.ringInstances?.length) {
+      ctx.strokeStyle = 'rgba(255, 159, 46, 0.80)';
+      ctx.lineWidth = 1.5;
+      ctx.setLineDash([3, 3]);
+      ctx.beginPath();
+      ctx.moveTo(0, 0);
+      for (let i = 0; i < aids.ringInstances.length; i += 1) {
+        const ring = aids.ringInstances[i];
+        if (ring.captured) continue;
+        ctx.lineTo(
+          (ring.holder.position.x - flightState.position.x) * scale,
+          (ring.holder.position.z - flightState.position.z) * scale,
+        );
+      }
+      ctx.stroke();
+      ctx.setLineDash([]);
+
+      for (let i = 0; i < aids.ringInstances.length; i += 1) {
+        const ring = aids.ringInstances[i];
+        if (ring.captured) continue;
+        const wx = (ring.holder.position.x - flightState.position.x) * scale;
+        const wz = (ring.holder.position.z - flightState.position.z) * scale;
+        ctx.fillStyle = i === 0 ? AMBER : PHOSPHOR;
+        ctx.beginPath();
+        ctx.arc(wx, wz, 3.0, 0, Math.PI * 2);
+        ctx.fill();
+      }
+    }
+
+    // Drop zone flare markers
+    if (aids?.dropZoneInstances?.length) {
+      for (let d = 0; d < aids.dropZoneInstances.length; d += 1) {
+        const dz = aids.dropZoneInstances[d];
+        if (dz.delivered) continue;
+        const dx = (dz.position.x - flightState.position.x) * scale;
+        const dzp = (dz.position.z - flightState.position.z) * scale;
+        ctx.strokeStyle = ALERT_RED;
+        ctx.lineWidth = 1.6;
+        ctx.beginPath();
+        ctx.arc(dx, dzp, 4.5, 0, Math.PI * 2);
+        ctx.stroke();
+      }
+    }
+    ctx.restore();
+  }
+
+  // Range ring + radar crosshair
+  ctx.strokeStyle = 'rgba(90, 242, 184, 0.34)';
+  ctx.lineWidth = 1;
+  ctx.beginPath();
+  ctx.arc(cx, cy, r * 0.5, 0, Math.PI * 2);
+  ctx.moveTo(cx - r, cy);
+  ctx.lineTo(cx + r, cy);
+  ctx.moveTo(cx, cy - r);
+  ctx.lineTo(cx, cy + r);
+  ctx.stroke();
+  ctx.restore();
+
+  // Outer compass rim & North tick
+  ctx.strokeStyle = BORDER_CYAN;
+  ctx.lineWidth = 1.4;
+  ctx.beginPath();
+  ctx.arc(cx, cy, r, 0, Math.PI * 2);
+  ctx.stroke();
+
+  const northAngle = -hdgRad - Math.PI * 0.5;
+  const nx = cx + Math.cos(northAngle) * (r - 6);
+  const ny = cy + Math.sin(northAngle) * (r - 6);
+  ctx.fillStyle = AMBER;
+  ctx.font = 'bold 9px Consolas, monospace';
+  ctx.textAlign = 'center';
+  ctx.fillText('N', nx, ny + 3);
+
+  // Center own-aircraft symbol
+  ctx.strokeStyle = CRISP_WHITE;
+  ctx.lineWidth = 2;
+  ctx.beginPath();
+  ctx.moveTo(cx, cy - 6);
+  ctx.lineTo(cx, cy + 7);
+  ctx.moveTo(cx - 7, cy);
+  ctx.lineTo(cx + 7, cy);
+  ctx.stroke();
+}
+
 export function renderTouchdownCard(ctx, width, height, card) {
   if (!card) return;
-  const w = 312;
+  const w = 316;
   const h = 148;
   const x = width - w - 18;
-  const y = height - h - 20;
+  const y = height - h - 22;
 
   const accent =
-    card.rating === 'SMOOTH STOL TOUCHDOWN'
+    card.rating === 'SMOOTH STOL TOUCHDOWN' || card.rating === 'DECK ARREST STOL LANDING'
       ? PHOSPHOR
       : card.rating === 'FIRM UTILITY LANDING'
         ? AMBER
@@ -504,7 +637,7 @@ export function renderTouchdownCard(ctx, width, height, card) {
   }
 }
 
-export function renderCockpitHud(hud, flightState, missionView, weather, cameraMode, elapsedSec) {
+export function renderCockpitHud(hud, flightState, missionView, weather, cameraMode, elapsedSec, worldRefs, aids) {
   const { ctx, width, height } = hud;
   ctx.save();
   ctx.scale(hud.dpr, hud.dpr);
@@ -524,23 +657,47 @@ export function renderCockpitHud(hud, flightState, missionView, weather, cameraM
   drawWindAndSystems(ctx, width, height, flightState, weather, cameraMode);
   drawMissionDirector(ctx, width, missionView);
 
-  // Master caution / stall / overspeed / terrain pull-up alerts
+  // Master caution & flight envelope alerts
   let alertMsg = '';
   if (flightState.terrainPullUp) alertMsg = 'TERRAIN AHEAD - PULL UP';
   else if (flightState.stallWarning) alertMsg = 'STALL WARNING - LOWER NOSE & ADD POWER';
   else if (flightState.overspeedWarning) alertMsg = 'OVERSPEED - REDUCE THROTTLE / RETRACT FLAPS';
+  else if (flightState.engineOverheatWarning) alertMsg = 'ENGINE ITT HIGH - REDUCE THROTTLE TO CRUISE';
   else if (flightState.fuelPct < 15) alertMsg = 'FUEL RESERVE CRITICAL - LAND IMMEDIATELY';
 
   if (alertMsg && Math.floor(elapsedSec * 5) % 2 === 0) {
-    drawBevelPanel(ctx, width * 0.5 - 190, centerY - 165, 380, 32, ALERT_RED, 'rgba(38, 10, 10, 0.92)');
+    drawBevelPanel(ctx, width * 0.5 - 195, centerY - 165, 390, 32, ALERT_RED, 'rgba(38, 10, 10, 0.92)');
     ctx.fillStyle = '#ffd7cf';
     ctx.font = 'bold 13px Bahnschrift, "Segoe UI", sans-serif';
     ctx.textAlign = 'center';
     ctx.fillText(alertMsg, width * 0.5, centerY - 144);
+  } else if (flightState.thermalUpdraftMps > 1.2) {
+    drawBevelPanel(ctx, width * 0.5 - 115, centerY - 165, 230, 26, AMBER, SLATE_BG);
+    ctx.fillStyle = AMBER;
+    ctx.font = 'bold 11px Consolas, monospace';
+    ctx.textAlign = 'center';
+    ctx.fillText(`CALDERA THERMAL +${Math.round(flightState.thermalUpdraftMps * 196.85)} FPM`, width * 0.5, centerY - 148);
   }
 
-  if (flightState.lastLandingCard && (flightState.touchdownActive || flightState.onGround)) {
+  const showingLandingCard = Boolean(
+    flightState.lastLandingCard && (flightState.touchdownActive || flightState.onGround),
+  );
+  if (showingLandingCard) {
     renderTouchdownCard(ctx, width, height, flightState.lastLandingCard);
+  } else if (width >= 680 && cameraMode !== 'cockpit') {
+    // Tactical Terrain Mini-Radar in Chase View (3D Cockpit already renders live Moving-Map Terrain MFD on center glass)
+    const radarSize = 152;
+    drawTacticalMiniRadar(
+      ctx,
+      width - radarSize - 18,
+      height - radarSize - 38,
+      radarSize,
+      flightState,
+      missionView,
+      weather,
+      worldRefs,
+      aids,
+    );
   }
 
   ctx.restore();

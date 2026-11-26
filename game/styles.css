@@ -200,13 +200,35 @@ a:focus-visible {
 }
 
 .modal-card {
-  width: min(780px, 100%);
-  max-height: calc(100vh - 32px);
+  width: min(860px, 100%);
+  max-height: calc(100vh - 28px);
   overflow-y: auto;
   background-color: var(--slate-900);
   border: 1.5px solid rgba(90, 242, 184, 0.55);
   border-radius: 6px;
-  padding: 20px 24px;
+  padding: 18px 22px;
+}
+
+.section-label {
+  margin: 0 0 8px;
+  font-size: 0.82rem;
+  font-family: var(--font-mono);
+  color: var(--phosphor);
+  letter-spacing: 0.04em;
+}
+
+.fleet-grid {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 8px;
+  margin-bottom: 14px;
+}
+
+.sortie-grid {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 8px;
+  margin-bottom: 12px;
 }
 
 .modal-card.alert-border {
@@ -235,13 +257,6 @@ a:focus-visible {
   font-family: var(--font-mono);
   font-size: 0.82rem;
   color: var(--phosphor);
-}
-
-.sortie-grid {
-  display: grid;
-  grid-template-columns: repeat(2, minmax(0, 1fr));
-  gap: 10px;
-  margin-bottom: 14px;
 }
 
 .sortie-btn {
@@ -394,7 +409,8 @@ a:focus-visible {
   pointer-events: none;
 }
 
-@media (max-width: 720px) {
+@media (max-width: 780px) {
+  .fleet-grid,
   .sortie-grid,
   .controls-summary,
   .telemetry-dl {

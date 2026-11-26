@@ -46,17 +46,17 @@ export function updateCameraRig(rig, flightState, dt, elapsedSec = 0) {
     rig.camera.updateProjectionMatrix();
 
     // Pilot eye position inside 3D cockpit frame, showing all 3 lit displays, yoke, throttles & panoramic windshield
-    const eyeLocal = new THREE.Vector3(0.0, 0.78, -0.96);
+    const eyeLocal = new THREE.Vector3(0.0, 0.85, -0.94);
     if (!rig.reducedMotion && !flightState.onGround) {
       eyeLocal.y += Math.max(-0.03, Math.min(0.03, -(flightState.gLoad - 1.0) * 0.012));
     }
     const eyeWorld = eyeLocal.applyQuaternion(flightState.quaternion).add(flightState.position);
     rig.camera.position.copy(eyeWorld);
 
-    // Pitch gaze slightly downward (-11 deg) so 3D EFIS glareshield & yoke occupy lower third while horizon & ring fill upper 2/3
+    // Pitch gaze slightly downward (-9.5 deg) so 3D EFIS glareshield & throttles frame lower third while horizon & terrain fill windshield
     const lookDir = forward
       .clone()
-      .addScaledVector(up, -0.195 + rig.orbitPitch * 0.55)
+      .addScaledVector(up, -0.165 + rig.orbitPitch * 0.55)
       .addScaledVector(right, rig.orbitYaw * 0.75)
       .normalize();
 

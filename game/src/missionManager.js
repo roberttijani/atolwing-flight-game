@@ -1,4 +1,4 @@
-// Four distinct archipelago sortie missions: Runway Delivery, Canyon Ring Run, Storm Airdrop, Dusk Approach.
+// Six distinct archipelago sortie missions covering coastal delivery, caldera slalom, storm airdrop, dusk ILS, volcanic rescue, and offshore deck approach.
 import * as THREE from '../vendor/three.min.js';
 import { RUNWAY_SPECS } from './terrainWorld.js';
 import { isStabilizedOnRunway } from './flightPhysics.js';
@@ -8,11 +8,11 @@ export const MISSIONS = [
   {
     id: 'delivery',
     index: 0,
-    title: 'Sortie 01: Karang to Kaldera Cargo',
-    shortTitle: 'RUNWAY DELIVERY',
+    title: 'Sortie 01: Coastal Cargo Delivery',
+    shortTitle: 'COASTAL DELIVERY',
     weatherPreset: 'golden',
     briefing:
-      'Depart the Karang Jaya RWY 09 corridor with medical cargo, hold 65-75% cruise throttle to conserve fuel across Selat Angin, and land to a full stop on highland Kaldera Timur RWY 14.',
+      'Depart Karang Jaya RWY 09 with medical freight, hold 65-75% cruise throttle to prevent engine heat and conserve fuel across Selat Angin, then stop on highland Kaldera Timur RWY 14.',
     spawn: {
       x: -2590,
       y: 126,
@@ -40,11 +40,11 @@ export const MISSIONS = [
   {
     id: 'canyon',
     index: 1,
-    title: 'Sortie 02: Selat Angin Gorge Slalom',
-    shortTitle: 'CANYON RING RUN',
+    title: 'Sortie 02: Caldera Ridge Slalom',
+    shortTitle: 'CALDERA SLALOM',
     weatherPreset: 'canyon',
     briefing:
-      'Carve low through 6 volcanic basalt gorge gates between Batu Kembar and Tanjung Api using coordinated bank-and-rudder turns, then touch down westbound on Karang Jaya RWY 27.',
+      'Thread 6 low-altitude basalt canyon gates between Batu Kembar and Tanjung Api using coordinated bank-and-rudder turns without exceeding G-limits, then recover westbound on WARA RWY 27.',
     spawn: {
       x: 910,
       y: 178,
@@ -73,11 +73,11 @@ export const MISSIONS = [
   {
     id: 'storm',
     index: 2,
-    title: 'Sortie 03: Squall Coastal Airdrop',
+    title: 'Sortie 03: Squall Emergency Airdrop',
     shortTitle: 'STORM AIRDROP',
     weatherPreset: 'storm',
     briefing:
-      'Battle 21 KT squall crosswinds to deliver emergency supply canisters over two southern cove flare zones (fly below 280 FT AGL under 112 KTS and press Space or pass low over flare), then recover to WARA RWY 27.',
+      'Battle 21 KT squall crosswinds and slanted rain to drop emergency supply canisters over two southern cove flare zones (below 320 FT AGL under 118 KTS, press Space or overfly low), then land on WARA RWY 27.',
     spawn: {
       x: 845,
       y: 158,
@@ -106,11 +106,11 @@ export const MISSIONS = [
   {
     id: 'dusk',
     index: 3,
-    title: 'Sortie 04: Twilight Beacon Approach',
+    title: 'Sortie 04: Dusk Beacon ILS Approach',
     shortTitle: 'DUSK BEACON ILS',
     weatherPreset: 'dusk',
     briefing:
-      'Low-visibility twilight recovery with only 26% reserve fuel. Track the sequenced approach strobes and hold 2-White / 2-Red on the RWY 09 PAPI lights to land before fuel exhaustion.',
+      'Twilight instrument recovery with only 26% reserve fuel. Track sequenced lead-in strobes and hold 2-White / 2-Red on the WARA RWY 09 PAPI lights for a clean stop before fuel exhaustion.',
     spawn: {
       x: -3160,
       y: 205,
@@ -130,6 +130,68 @@ export const MISSIONS = [
       { x: -2750, y: 148, z: -35, headingDeg: 108, radius: 27 },
       { x: -2390, y: 94, z: 178, headingDeg: 96, radius: 26 },
       { x: -2085, y: 50, z: 220, headingDeg: 90, radius: 25 },
+    ],
+    dropZones: [],
+  },
+  {
+    id: 'volcanic',
+    index: 4,
+    title: 'Sortie 05: Volcanic Thermal Rescue',
+    shortTitle: 'VOLCANIC RESCUE',
+    weatherPreset: 'volcanic',
+    briefing:
+      'Climb into rising thermal updrafts around Mount Bara smoking caldera, release seismic rescue supplies at the high ridge flare station, then descend to Kaldera Timur RWY 14.',
+    spawn: {
+      x: 740,
+      y: 275,
+      z: -480,
+      headingDeg: 68,
+      pitchDeg: 3.0,
+      rollDeg: 0,
+      airspeedKts: 104,
+      throttle: 0.76,
+      flapIndex: 0,
+      fuelPct: 62,
+      onGround: false,
+    },
+    targetRunwayId: 'WAKB',
+    targetRunwayLabel: 'WAKB RWY 14',
+    rings: [
+      { x: 1180, y: 315, z: -610, headingDeg: 72, radius: 29 },
+      { x: 1580, y: 365, z: -720, headingDeg: 85, radius: 30 },
+      { x: 1460, y: 215, z: -260, headingDeg: 165, radius: 28 },
+    ],
+    dropZones: [
+      { id: 'DZ-CRATER', label: 'Caldera Rim Survey Camp', x: 1765, z: -565 },
+    ],
+  },
+  {
+    id: 'offshore',
+    index: 5,
+    title: 'Sortie 06: Offshore Platform Approach',
+    shortTitle: 'OFFSHORE DECK',
+    weatherPreset: 'canyon',
+    briefing:
+      'Intercept the maritime corridor over open ocean crosswinds and execute a precision 35-deg STOL landing to a full stop on the 260 m elevated steel deck of Bara Deep Platform WAPO RWY 09.',
+    spawn: {
+      x: -2080,
+      y: 165,
+      z: -1190,
+      headingDeg: 84,
+      pitchDeg: -1.5,
+      rollDeg: 0,
+      airspeedKts: 88,
+      throttle: 0.64,
+      flapIndex: 1,
+      fuelPct: 48,
+      onGround: false,
+    },
+    targetRunwayId: 'WAPO',
+    targetRunwayLabel: 'WAPO DECK 09',
+    rings: [
+      { x: -1680, y: 118, z: -1135, headingDeg: 86, radius: 27 },
+      { x: -1360, y: 74, z: -1095, headingDeg: 88, radius: 26 },
+      { x: -1115, y: 44, z: -1080, headingDeg: 90, radius: 24 },
     ],
     dropZones: [],
   },
@@ -167,7 +229,6 @@ export function updateMissionProgress(mState, flightState, aids, dropRequested, 
     mState.bannerTimer = Math.max(0, mState.bannerTimer - dt);
   }
 
-  // 1. Check active or upcoming ring captures
   for (let i = 0; i < aids.ringInstances.length; i += 1) {
     const ring = aids.ringInstances[i];
     if (!ring.captured && checkRingCapture(ring, mState.prevAircraftPos, flightState.position)) {
@@ -184,7 +245,6 @@ export function updateMissionProgress(mState, flightState, aids, dropRequested, 
     }
   }
 
-  // 2. Check Storm Airdrop canisters over flare drop zones
   for (let d = 0; d < aids.dropZoneInstances.length; d += 1) {
     const dz = aids.dropZoneInstances[d];
     if (dz.delivered) continue;
@@ -194,9 +254,9 @@ export function updateMissionProgress(mState, flightState, aids, dropRequested, 
     );
     const aglFt = flightState.radarAltFt;
     const inDropEnvelope =
-      horizDist < 95 && aglFt < 320 && flightState.airspeedKts < 118 && !flightState.onGround;
+      horizDist < 105 && aglFt < 360 && flightState.airspeedKts < 122 && !flightState.onGround;
 
-    if (inDropEnvelope && (dropRequested || horizDist < 54)) {
+    if (inDropEnvelope && (dropRequested || horizDist < 58)) {
       dz.delivered = true;
       dz.ringMat.color.setHex(0x4bf598);
       dz.flarePillar.material.color.setHex(0x4bf598);
@@ -207,7 +267,6 @@ export function updateMissionProgress(mState, flightState, aids, dropRequested, 
     }
   }
 
-  // 3. Check final runway landing & full-stop completion
   const allGatesDone = mState.ringsCaptured >= mState.totalRings;
   const allDropsDone = mState.dropsCompleted >= mState.totalDrops;
 
@@ -227,8 +286,9 @@ export function scoreMissionCompletion(mState, flightState) {
   const fuelBonus = Math.round(flightState.fuelPct * 12);
   const airframeBonus = Math.round((100 - flightState.damagePct) * 10);
   const smoothBonus =
-    flightState.lastLandingCard?.rating === 'SMOOTH STOL TOUCHDOWN'
-      ? 600
+    flightState.lastLandingCard?.rating === 'SMOOTH STOL TOUCHDOWN' ||
+    flightState.lastLandingCard?.rating === 'DECK ARREST STOL LANDING'
+      ? 650
       : flightState.lastLandingCard?.rating === 'FIRM UTILITY LANDING'
         ? 350
         : 120;
@@ -238,6 +298,7 @@ export function scoreMissionCompletion(mState, flightState) {
 
   return {
     missionTitle: mState.mission.title,
+    aircraftName: flightState.aircraftSpec?.shortLabel ?? 'ATW-28',
     totalScore,
     rank,
     elapsedSec: Math.round(mState.elapsedSec),
@@ -253,14 +314,18 @@ export function getMissionHudView(mState, flightState, aids) {
   let targetPos = null;
   let objectiveLabel = '';
 
-  // Prioritize undelivered drop zone if closer than next ring, else next uncaptured ring, else target runway
   const nextDz = aids.dropZoneInstances.find((d) => !d.delivered);
   const nextRing =
     mState.activeRingIndex < aids.ringInstances.length
       ? aids.ringInstances[mState.activeRingIndex]
       : aids.ringInstances.find((r) => !r.captured);
 
-  if (nextDz && (!nextRing || flightState.position.distanceTo(nextDz.position) < flightState.position.distanceTo(nextRing.holder.position))) {
+  if (
+    nextDz &&
+    (!nextRing ||
+      flightState.position.distanceTo(nextDz.position) <
+        flightState.position.distanceTo(nextRing.holder.position))
+  ) {
     targetPos = nextDz.position;
     objectiveLabel = `DROP ${mState.dropsCompleted + 1}/${mState.totalDrops}: ${nextDz.def.label}`;
   } else if (nextRing) {
@@ -282,6 +347,7 @@ export function getMissionHudView(mState, flightState, aids) {
     objectiveLabel,
     distanceM,
     bearingDeg,
+    targetRunwayId: mState.mission.targetRunwayId,
     ringsCaptured: mState.ringsCaptured,
     totalRings: mState.totalRings,
     dropsCompleted: mState.dropsCompleted,

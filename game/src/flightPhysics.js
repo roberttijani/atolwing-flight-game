@@ -1,12 +1,13 @@
-// Six-DoF STOL twin-turboprop flight physics, throttle fuel burn, damage, and runway contact telemetry.
+// Six-DoF flight physics parameterized by fleet aircraft profile, engine thermal stress, volcanic updrafts, and deck/water landings.
 import * as THREE from '../vendor/three.min.js';
 import {
+  CALDERA_PEAK_POS,
   SEA_LEVEL,
   classifySurfaceMaterial,
   findContainingRunway,
-  projectOntoRunway,
   sampleTerrainHeight,
 } from './terrainWorld.js';
+import { getAircraftSpec } from './aircraftCatalog.js';
 
 export const MPS_TO_KTS = 1.943844;
 export const KTS_TO_MPS = 1 / MPS_TO_KTS;
@@ -14,7 +15,6 @@ export const M_TO_FT = 3.28084;
 export const MPS_TO_FPM = 196.8504;
 
 export const FLAP_ANGLES_DEG = [0, 15, 35];
-export const GEAR_CLEARANCE_M = 2.35;
 
 const UP_AXIS = new THREE.Vector3(0, 1, 0);
 const LOCAL_FORWARD = new THREE.Vector3(0, 0, -1);
@@ -25,12 +25,15 @@ function clamp(v, lo, hi) {
   return Math.max(lo, Math.min(hi, v));
 }
 
-export function createFlightState() {
+export function createFlightState(aircraftId = 'islander') {
+  const spec = getAircraftSpec(aircraftId);
   return {
+    aircraftId: spec.id,
+    aircraftSpec: spec,
     position: new THREE.Vector3(-2550, 138, 220),
     velocity: new THREE.Vector3(46, -2.2, 0),
     quaternion: new THREE.Quaternion(),
-    angularVel: new THREE.Vector3(0, 0, 0), // pitch, yaw, roll rates in body frame
+    angularVel: new THREE.Vector3(0, 0, 0),
 
     headingDeg: 90,
     pitchDeg: 2.0,
@@ -48,7 +51,7 @@ export function createFlightState() {
 
     throttle: 0.68,
     rpmNorm: 0.72,
-    flapIndex: 1, // 0 = UP, 1 = T/O 15°, 2 = LND 35°
+    flapIndex: 1,
     flapNorm: 0.45,
     brakes: false,
     controlPitch: 0,
@@ -57,13 +60,18 @@ export function createFlightState() {
 
     fuelPct: 86.0,
     fuelFlowKgH: 142,
+    airframeDmgPct: 0.0,
+    engineStressPct: 0.0,
     damagePct: 0.0,
+    engineOverheatWarning: false,
 
     onGround: false,
+    onWater: false,
     onRunwayId: null,
     stallWarning: false,
     overspeedWarning: false,
     terrainPullUp: false,
+    thermalUpdraftMps: 0,
     crashed: false,
     crashReport: null,
 
@@ -78,6 +86,12 @@ export function createFlightState() {
     justTouchedDown: false,
     propPhase: 0,
   };
+}
+
+export function applyAircraftProfile(state, aircraftId) {
+  const spec = getAircraftSpec(aircraftId);
+  state.aircraftId = spec.id;
+  state.aircraftSpec = spec;
 }
 
 export function setQuaternionFromAttitude(quaternion, headingDeg, pitchDeg, rollDeg) {
@@ -111,19 +125,24 @@ export function extractAttitudeFromQuaternion(quaternion) {
 }
 
 export function resetAircraftAtSpawn(state, spawn) {
+  const spec = state.aircraftSpec ?? getAircraftSpec(state.aircraftId);
+  const clearance = spec.gearClearanceM ?? 2.35;
   const hdg = spawn.headingDeg ?? 90;
   const pitch = spawn.pitchDeg ?? 1.5;
   const roll = spawn.rollDeg ?? 0;
-  const speedKts = spawn.airspeedKts ?? 92;
+  const speedKts = spawn.airspeedKts ?? 94;
   const speedMps = speedKts * KTS_TO_MPS;
 
   state.position.set(spawn.x, spawn.y, spawn.z);
   setQuaternionFromAttitude(state.quaternion, hdg, pitch, roll);
 
   const { forward } = extractAttitudeFromQuaternion(state.quaternion);
+  const runwayAtSpawn = findContainingRunway(spawn.x, spawn.z, 10, 4);
   if (spawn.onGround) {
-    const groundY = sampleTerrainHeight(spawn.x, spawn.z);
-    state.position.y = groundY + GEAR_CLEARANCE_M;
+    const surfaceY = runwayAtSpawn
+      ? runwayAtSpawn.runway.elevation
+      : Math.max(SEA_LEVEL, sampleTerrainHeight(spawn.x, spawn.z));
+    state.position.y = surfaceY + clearance;
     const hdgRad = (hdg * Math.PI) / 180;
     state.velocity.set(Math.sin(hdgRad) * speedMps, 0, -Math.cos(hdgRad) * speedMps);
   } else {
@@ -133,6 +152,10 @@ export function resetAircraftAtSpawn(state, spawn) {
     }
   }
 
+  const baseGroundY = runwayAtSpawn
+    ? runwayAtSpawn.runway.elevation
+    : Math.max(SEA_LEVEL, sampleTerrainHeight(spawn.x, spawn.z));
+
   state.angularVel.set(0, 0, 0);
   state.headingDeg = hdg;
   state.pitchDeg = pitch;
@@ -141,7 +164,7 @@ export function resetAircraftAtSpawn(state, spawn) {
   state.airspeedKts = speedKts;
   state.groundSpeedKts = speedKts;
   state.altitudeFt = state.position.y * M_TO_FT;
-  state.radarAltFt = Math.max(0, (state.position.y - sampleTerrainHeight(spawn.x, spawn.z)) * M_TO_FT);
+  state.radarAltFt = Math.max(0, (state.position.y - baseGroundY) * M_TO_FT);
   state.verticalSpeedFpm = state.velocity.y * MPS_TO_FPM;
   state.gLoad = 1.0;
 
@@ -154,15 +177,21 @@ export function resetAircraftAtSpawn(state, spawn) {
   state.controlRoll = 0;
   state.controlYaw = 0;
 
-  state.fuelPct = spawn.fuelPct ?? 82.0;
-  state.fuelFlowKgH = 95;
+  const baseFuel = spawn.fuelPct ?? 82.0;
+  state.fuelPct = clamp(baseFuel * spec.fuelCapMultiplier, 18, 100);
+  state.fuelFlowKgH = Math.round(95 * spec.fuelBurnScale);
+  state.airframeDmgPct = 0.0;
+  state.engineStressPct = 0.0;
   state.damagePct = 0.0;
+  state.engineOverheatWarning = false;
 
   state.onGround = Boolean(spawn.onGround);
-  state.onRunwayId = spawn.onGround ? (findContainingRunway(spawn.x, spawn.z)?.runway.id ?? null) : null;
+  state.onWater = false;
+  state.onRunwayId = spawn.onGround ? (runwayAtSpawn?.runway.id ?? null) : null;
   state.stallWarning = false;
   state.overspeedWarning = false;
   state.terrainPullUp = false;
+  state.thermalUpdraftMps = 0;
   state.crashed = false;
   state.crashReport = null;
 
@@ -178,9 +207,8 @@ export function resetAircraftAtSpawn(state, spawn) {
 
 export function computeLiftAndDrag(alphaRad, flapNorm, airbrakeActive) {
   const alphaDeg = (alphaRad * 180) / Math.PI;
-  const criticalAlpha = 15.5 + flapNorm * 3.8;
+  const criticalAlpha = 15.8 + flapNorm * 3.8;
 
-  // Linear lift slope up to critical STOL angle of attack, smooth post-stall dropoff
   let cl = 0.30 + flapNorm * 0.58 + alphaDeg * 0.092;
   let stalled = false;
   if (alphaDeg > criticalAlpha) {
@@ -192,29 +220,38 @@ export function computeLiftAndDrag(alphaRad, flapNorm, airbrakeActive) {
     cl = Math.min(-0.15, cl + negExcess * 0.08);
   }
 
-  const cd0 = 0.029 + flapNorm * 0.044 + (airbrakeActive ? 0.068 : 0);
-  const inducedDrag = 0.048 * cl * cl;
+  const cd0 = 0.028 + flapNorm * 0.044 + (airbrakeActive ? 0.068 : 0);
+  const inducedDrag = 0.046 * cl * cl;
   const stallDrag = stalled ? Math.pow((alphaDeg - criticalAlpha) * 0.09, 2) * 0.35 : 0;
   return { cl, cd: cd0 + inducedDrag + stallDrag, stalled };
 }
 
 export function applyThrottleFuelBurn(state, dt) {
+  const spec = state.aircraftSpec ?? getAircraftSpec(state.aircraftId);
   if (state.fuelPct <= 0) {
     state.fuelPct = 0;
     state.throttle = 0;
     state.fuelFlowKgH = 0;
     return;
   }
-  // Economy cruise sweet spot sits at 58%..72% throttle; full WEP burns disproportionately faster
   const thr = state.throttle;
-  const wOTPenalty = thr > 0.78 ? Math.pow((thr - 0.78) / 0.22, 2) * 0.44 : 0;
-  const burnPctPerSec = 0.045 + thr * 0.16 + thr * thr * 0.19 + wOTPenalty;
+  const wotPenalty = thr > 0.80 ? Math.pow((thr - 0.80) / 0.20, 2) * 0.46 : 0;
+  const burnPctPerSec = (0.044 + thr * 0.155 + thr * thr * 0.185 + wotPenalty) * spec.fuelBurnScale;
   state.fuelPct = Math.max(0, state.fuelPct - burnPctPerSec * dt);
   state.fuelFlowKgH = Math.round(48 + burnPctPerSec * 560);
+
+  // Sustained WEP (>88% throttle) heats turbines and builds engine stress; cruising below 78% cools gently
+  if (thr > 0.88) {
+    state.engineStressPct = clamp(state.engineStressPct + (thr - 0.88) * 18.5 * dt, 0, 100);
+  } else if (thr < 0.78) {
+    state.engineStressPct = Math.max(0, state.engineStressPct - 1.4 * dt);
+  }
+  state.engineOverheatWarning = state.engineStressPct > 45;
 }
 
 function recordCrash(state, causeTitle, detailText) {
   state.crashed = true;
+  state.airframeDmgPct = 100;
   state.damagePct = 100;
   state.throttle = 0;
   state.crashReport = {
@@ -257,24 +294,27 @@ export function evaluateRunwayContact(state, prevVelY, runwayHit) {
     state.bounceCount = 0;
   }
 
-  // Hard landing damage & bounce physics
   if (sinkFpm > 540) {
     const dmgAdd = ((sinkFpm - 520) / 520) * 34;
-    state.damagePct = clamp(state.damagePct + dmgAdd, 0, 100);
+    state.airframeDmgPct = clamp(state.airframeDmgPct + dmgAdd, 0, 100);
     if (sinkFpm > 620 && speedKts > 48) {
       state.bounceCount += 1;
       state.velocity.y = Math.min(3.4, Math.abs(prevVelY) * 0.34);
       state.onGround = false;
     }
   } else if (rollAbs > 14) {
-    state.damagePct = clamp(state.damagePct + 8, 0, 100);
+    state.airframeDmgPct = clamp(state.airframeDmgPct + 8, 0, 100);
   }
+
+  state.damagePct = clamp(Math.max(state.airframeDmgPct, state.engineStressPct * 0.65), 0, 100);
 
   const rating =
     state.bounceCount > 0
       ? 'BOUNCED LANDING'
       : sinkFpm <= 210 && state.touchdownOffsetM <= 6.5
-        ? 'SMOOTH STOL TOUCHDOWN'
+        ? runwayHit.runway.offshore
+          ? 'DECK ARREST STOL LANDING'
+          : 'SMOOTH STOL TOUCHDOWN'
         : sinkFpm <= 460
           ? 'FIRM UTILITY LANDING'
           : 'HARD LANDING';
@@ -296,7 +336,9 @@ export function stepFlightPhysics(state, controls, windVec, dt) {
   state.justTouchedDown = false;
   if (state.crashed) return;
 
-  // Smooth pilot control inputs & flap deployment
+  const spec = state.aircraftSpec ?? getAircraftSpec(state.aircraftId);
+  const clearance = spec.gearClearanceM ?? 2.35;
+
   state.throttle = clamp(state.throttle + controls.throttleDelta * dt, 0, 1);
   if (controls.flapStep) {
     state.flapIndex = (state.flapIndex + 1) % FLAP_ANGLES_DEG.length;
@@ -315,19 +357,30 @@ export function stepFlightPhysics(state, controls, windVec, dt) {
   state.rpmNorm += (targetRpm - state.rpmNorm) * Math.min(1, dt * 2.8);
   state.propPhase = (state.propPhase + dt * (14 + state.rpmNorm * 46)) % (Math.PI * 2);
 
-  // World basis vectors of aircraft
   const forward = LOCAL_FORWARD.clone().applyQuaternion(state.quaternion).normalize();
   const right = LOCAL_RIGHT.clone().applyQuaternion(state.quaternion).normalize();
   const up = LOCAL_UP.clone().applyQuaternion(state.quaternion).normalize();
 
-  // Relative air velocity = aircraft inertial velocity minus ambient wind
-  const airVel = state.velocity.clone().sub(windVec);
+  // Volcanic thermal updraft over Mount Bara caldera rim
+  const calderaDist = Math.hypot(
+    state.position.x - CALDERA_PEAK_POS.x,
+    state.position.z - CALDERA_PEAK_POS.z,
+  );
+  let thermalUp = 0;
+  if (calderaDist < 480 && state.position.y > 240 && state.position.y < 760) {
+    thermalUp = (1 - calderaDist / 480) * 4.4;
+  }
+  state.thermalUpdraftMps = thermalUp;
+
+  const effectiveWind = windVec.clone();
+  effectiveWind.y += thermalUp;
+
+  const airVel = state.velocity.clone().sub(effectiveWind);
   const airspeed = airVel.length();
   state.airspeedMps = airspeed;
   state.airspeedKts = airspeed * MPS_TO_KTS;
   state.groundSpeedKts = Math.hypot(state.velocity.x, state.velocity.z) * MPS_TO_KTS;
 
-  // Local body velocity components for angle of attack (alpha) & sideslip (beta)
   const vFwd = Math.max(0.5, airVel.dot(forward));
   const vUp = airVel.dot(up);
   const vSide = airVel.dot(right);
@@ -336,18 +389,16 @@ export function stepFlightPhysics(state, controls, windVec, dt) {
   state.alphaDeg = (alphaRad * 180) / Math.PI;
   state.betaDeg = (betaRad * 180) / Math.PI;
 
-  // Aerodynamic forces (Twin-turboprop Kestrel-28: mass 2,350 kg, wing area 25.4 m^2)
-  const mass = 2350;
-  const wingArea = 25.4;
+  const mass = spec.massKg;
+  const wingArea = spec.wingAreaM2;
   const rho = 1.20 * Math.exp(-Math.max(0, state.position.y) / 9200);
   const qDyn = 0.5 * rho * airspeed * airspeed;
 
   const aero = computeLiftAndDrag(alphaRad, state.flapNorm, state.brakes && !state.onGround);
 
-  // Twin-turboprop thrust with low-speed static STOL pull and high-speed prop efficiency taper
-  const propEff = clamp(1.16 - airspeed / 138, 0.36, 1.15);
-  const maxStaticThrustN = 14800 * (1.0 - state.damagePct * 0.0035);
-  const thrustMag = state.fuelPct > 0 ? state.throttle * maxStaticThrustN * propEff : 0;
+  const propEff = clamp(1.16 - airspeed / 145, 0.36, 1.15);
+  const stressLoss = 1.0 - state.airframeDmgPct * 0.0025 - state.engineStressPct * 0.0025;
+  const thrustMag = state.fuelPct > 0 ? state.throttle * spec.maxStaticThrustN * propEff * stressLoss : 0;
 
   const totalForce = new THREE.Vector3(0, -9.81 * mass, 0);
   totalForce.addScaledVector(forward, thrustMag);
@@ -365,12 +416,10 @@ export function stepFlightPhysics(state, controls, windVec, dt) {
       totalForce.addScaledVector(liftDir, liftMag);
     }
 
-    // Weathervane side-force restoring sideslip
-    const sideForceMag = -qDyn * wingArea * 0.62 * betaRad;
+    const sideForceMag = -qDyn * wingArea * 0.65 * betaRad;
     totalForce.addScaledVector(right, sideForceMag);
   }
 
-  // Control authority scales smoothly with airspeed + twin-prop slipstream wash so STOL speeds remain crisp
   const slipstreamAuthority = state.throttle * 0.34;
   const speedAuthority = clamp(airspeed / 36, 0.12, 1.28);
   const authority = clamp(speedAuthority + slipstreamAuthority, 0.22, 1.32);
@@ -378,24 +427,24 @@ export function stepFlightPhysics(state, controls, windVec, dt) {
   const curAtt = extractAttitudeFromQuaternion(state.quaternion);
   const bankRad = (curAtt.rollDeg * Math.PI) / 180;
 
-  // Natural aerodynamic stability + coordinated-turn yaw coupling (camera & nose never fight pilot)
   const pitchStability = -alphaRad * 0.85 * speedAuthority;
   const yawStability = -betaRad * 1.65 * speedAuthority;
   const coordinatedTurnYaw =
-    !state.onGround && airspeed > 14 ? Math.sin(bankRad) * Math.cos((curAtt.pitchDeg * Math.PI) / 180) * (9.81 / Math.max(22, airspeed)) * 0.92 : 0;
+    !state.onGround && airspeed > 14
+      ? Math.sin(bankRad) * Math.cos((curAtt.pitchDeg * Math.PI) / 180) * (9.81 / Math.max(22, airspeed)) * 0.92
+      : 0;
   const stallBuffetPitch = aero.stalled && !state.onGround ? -0.28 + Math.sin(state.propPhase * 1.7) * 0.08 : 0;
 
-  const targetPitchRate = state.controlPitch * 1.18 * authority + pitchStability + stallBuffetPitch;
-  const targetRollRate = state.controlRoll * 1.95 * authority - (state.onGround ? curAtt.rollDeg * 0.08 : 0);
+  const targetPitchRate = state.controlPitch * spec.pitchAuthority * authority + pitchStability + stallBuffetPitch;
+  const targetRollRate = state.controlRoll * spec.rollAuthority * authority - (state.onGround ? curAtt.rollDeg * 0.08 : 0);
   const targetYawRate =
-    state.controlYaw * (state.onGround ? 0.95 : 0.72 * authority) + yawStability + coordinatedTurnYaw;
+    state.controlYaw * (state.onGround ? 0.95 : spec.yawAuthority * authority) + yawStability + coordinatedTurnYaw;
 
   const rateResponse = Math.min(1, dt * 8.2);
   state.angularVel.x += (targetPitchRate - state.angularVel.x) * rateResponse;
   state.angularVel.y += (targetYawRate - state.angularVel.y) * rateResponse;
   state.angularVel.z += (targetRollRate - state.angularVel.z) * rateResponse;
 
-  // Apply body-frame angular rates to quaternion: +X pitch up, -Y heading right, -Z roll right
   const dq = new THREE.Quaternion().setFromEuler(
     new THREE.Euler(
       state.angularVel.x * dt,
@@ -406,136 +455,151 @@ export function stepFlightPhysics(state, controls, windVec, dt) {
   );
   state.quaternion.multiply(dq).normalize();
 
-  // Integrate linear velocity & position
   const prevVelY = state.velocity.y;
   state.velocity.addScaledVector(totalForce, dt / mass);
-
-  // Ground roll friction, wheel brakes, and nosewheel steering when on runway
-  const groundH = sampleTerrainHeight(state.position.x, state.position.z);
-  const surfaceType = classifySurfaceMaterial(state.position.x, state.position.z, groundH);
-  const runwayHit = findContainingRunway(state.position.x, state.position.z, 10, 4);
-
   state.position.addScaledVector(state.velocity, dt);
 
-  const postGroundH = sampleTerrainHeight(state.position.x, state.position.z);
-  const gearY = Math.max(SEA_LEVEL, postGroundH) + GEAR_CLEARANCE_M;
+  const postRunway = findContainingRunway(state.position.x, state.position.z, 10, 4);
+  const postTerrainH = sampleTerrainHeight(state.position.x, state.position.z);
+
+  // Elevated offshore platform deck acts as solid runway when aircraft is at or above deck slab
+  const overOffshoreDeck =
+    postRunway && postRunway.runway.offshore && state.position.y >= postRunway.runway.elevation - 4.0;
+  const supportSurfaceH = overOffshoreDeck
+    ? postRunway.runway.elevation
+    : Math.max(SEA_LEVEL, postTerrainH);
+  const gearY = supportSurfaceH + clearance;
 
   if (state.position.y <= gearY) {
-    const postSurface = classifySurfaceMaterial(state.position.x, state.position.z, postGroundH);
-    const postRunway = findContainingRunway(state.position.x, state.position.z, 10, 4);
+    const postSurface = overOffshoreDeck
+      ? 'runway'
+      : classifySurfaceMaterial(state.position.x, state.position.z, postTerrainH);
 
-    if (postSurface === 'water' || postGroundH <= SEA_LEVEL + 0.2) {
-      recordCrash(
-        state,
-        'Ocean Ditching Impact',
-        `Aircraft struck sea surface at ${Math.round(state.airspeedKts)} KTS (${Math.round(prevVelY * MPS_TO_FPM)} FPM)`,
-      );
-      state.position.y = SEA_LEVEL + 0.6;
-      return;
-    }
-
-    if (!postRunway && (state.airspeedKts > 42 || Math.abs(prevVelY * MPS_TO_FPM) > 380)) {
+    if (postSurface === 'water' || (!overOffshoreDeck && postTerrainH <= SEA_LEVEL + 0.2)) {
+      const sinkFpm = Math.abs(Math.min(0, prevVelY * MPS_TO_FPM));
+      if (spec.amphibious && sinkFpm <= 460 && state.airspeedKts <= 78 && Math.abs(state.rollDeg) <= 15) {
+        // Amphibian PL-40 Mariner executes safe water landing on lagoon
+        state.position.y = SEA_LEVEL + 1.45;
+        if (state.velocity.y < 0) state.velocity.y = 0;
+        state.onGround = true;
+        state.onWater = true;
+        state.onRunwayId = 'WATER';
+        const horiz = Math.hypot(state.velocity.x, state.velocity.z);
+        if (horiz > 0.1) {
+          const nextH = Math.max(0, horiz - (state.brakes ? 7.5 : 3.2) * dt);
+          state.velocity.x *= nextH / horiz;
+          state.velocity.z *= nextH / horiz;
+        }
+      } else {
+        recordCrash(
+          state,
+          'Ocean Ditching Impact',
+          `Aircraft struck sea surface at ${Math.round(state.airspeedKts)} KTS (${Math.round(prevVelY * MPS_TO_FPM)} FPM)`,
+        );
+        state.position.y = SEA_LEVEL + 0.6;
+        return;
+      }
+    } else if (!postRunway && (state.airspeedKts > 42 || Math.abs(prevVelY * MPS_TO_FPM) > 380)) {
       recordCrash(
         state,
         'Controlled Flight Into Terrain (CFIT)',
-        `Impacted volcanic island terrain off-runway at ${Math.round(state.airspeedKts)} KTS and ${Math.round( postGroundH * M_TO_FT )} FT MSL`,
+        `Impacted volcanic island terrain off-runway at ${Math.round(state.airspeedKts)} KTS and ${Math.round(postTerrainH * M_TO_FT)} FT MSL`,
       );
       state.position.y = gearY;
       return;
-    }
-
-    state.position.y = gearY;
-    if (!state.onGround && postRunway) {
-      evaluateRunwayContact(state, prevVelY, postRunway);
-      if (state.crashed) return;
-    }
-
-    if (state.velocity.y < 0) state.velocity.y = 0;
-    state.onGround = state.velocity.y <= 0.25;
-    state.onRunwayId = postRunway ? postRunway.runway.id : null;
-
-    if (state.onGround) {
-      // Gently level wings and prevent excessive nose-down pitch on landing gear
-      const att = extractAttitudeFromQuaternion(state.quaternion);
-      const clampedPitch = clamp(att.pitchDeg, -1.5, 13.5);
-      const leveledRoll = att.rollDeg * Math.max(0, 1 - dt * 7.5);
-      setQuaternionFromAttitude(state.quaternion, att.headingDeg, clampedPitch, leveledRoll);
-
-      // Wheel braking + runway directional tire alignment
-      const brakeDecel = state.brakes ? 9.4 : 0.85;
-      const offRunwayDrag = postRunway ? 0 : 4.8;
-      const horizSpeed = Math.hypot(state.velocity.x, state.velocity.z);
-      if (horizSpeed > 0.05) {
-        const nextHoriz = Math.max(0, horizSpeed - (brakeDecel + offRunwayDrag) * dt);
-        const ratio = nextHoriz / horizSpeed;
-        state.velocity.x *= ratio;
-        state.velocity.z *= ratio;
+    } else {
+      state.position.y = gearY;
+      state.onWater = false;
+      if (!state.onGround && postRunway) {
+        evaluateRunwayContact(state, prevVelY, postRunway);
+        if (state.crashed) return;
       }
 
-      // Align ground roll vector with aircraft nose to eliminate sideways skating
-      const groundFwd = LOCAL_FORWARD.clone().applyQuaternion(state.quaternion);
-      groundFwd.y = 0;
-      if (groundFwd.lengthSq() > 1e-4) {
-        groundFwd.normalize();
-        const curHoriz = Math.hypot(state.velocity.x, state.velocity.z);
-        const blend = Math.min(1, dt * 6.5);
-        state.velocity.x = state.velocity.x * (1 - blend) + groundFwd.x * curHoriz * blend;
-        state.velocity.z = state.velocity.z * (1 - blend) + groundFwd.z * curHoriz * blend;
-      }
+      if (state.velocity.y < 0) state.velocity.y = 0;
+      state.onGround = state.velocity.y <= 0.25;
+      state.onRunwayId = postRunway ? postRunway.runway.id : null;
 
-      if (state.touchdownActive && postRunway) {
-        state.rolloutDistanceM = Math.hypot(
-          state.position.x - state.touchdownPos.x,
-          state.position.z - state.touchdownPos.z,
-        );
-        if (state.lastLandingCard) {
-          state.lastLandingCard.stoppingDistanceM = Math.round(state.rolloutDistanceM);
-          state.lastLandingCard.fuelRemainingPct = Math.round(state.fuelPct);
-          state.lastLandingCard.damagePct = Math.round(state.damagePct);
-          state.lastLandingCard.stopped = state.groundSpeedKts < 4.5;
+      if (state.onGround) {
+        const att = extractAttitudeFromQuaternion(state.quaternion);
+        const clampedPitch = clamp(att.pitchDeg, -1.5, 13.5);
+        const leveledRoll = att.rollDeg * Math.max(0, 1 - dt * 7.5);
+        setQuaternionFromAttitude(state.quaternion, att.headingDeg, clampedPitch, leveledRoll);
+
+        const brakeDecel = state.brakes ? 9.8 : 0.85;
+        const offRunwayDrag = postRunway ? 0 : 4.8;
+        const horizSpeed = Math.hypot(state.velocity.x, state.velocity.z);
+        if (horizSpeed > 0.05) {
+          const nextHoriz = Math.max(0, horizSpeed - (brakeDecel + offRunwayDrag) * dt);
+          const ratio = nextHoriz / horizSpeed;
+          state.velocity.x *= ratio;
+          state.velocity.z *= ratio;
+        }
+
+        const groundFwd = LOCAL_FORWARD.clone().applyQuaternion(state.quaternion);
+        groundFwd.y = 0;
+        if (groundFwd.lengthSq() > 1e-4) {
+          groundFwd.normalize();
+          const curHoriz = Math.hypot(state.velocity.x, state.velocity.z);
+          const blend = Math.min(1, dt * 6.5);
+          state.velocity.x = state.velocity.x * (1 - blend) + groundFwd.x * curHoriz * blend;
+          state.velocity.z = state.velocity.z * (1 - blend) + groundFwd.z * curHoriz * blend;
+        }
+
+        if (state.touchdownActive && postRunway) {
+          state.rolloutDistanceM = Math.hypot(
+            state.position.x - state.touchdownPos.x,
+            state.position.z - state.touchdownPos.z,
+          );
+          if (state.lastLandingCard) {
+            state.lastLandingCard.stoppingDistanceM = Math.round(state.rolloutDistanceM);
+            state.lastLandingCard.fuelRemainingPct = Math.round(state.fuelPct);
+            state.lastLandingCard.damagePct = Math.round(state.damagePct);
+            state.lastLandingCard.stopped = state.groundSpeedKts < 4.5;
+          }
         }
       }
     }
   } else {
     state.onGround = false;
+    state.onWater = false;
     state.onRunwayId = null;
     if (state.position.y - gearY > 12.0 && state.airspeedKts > 62) {
       state.touchdownActive = false;
     }
   }
 
-  // Update derived telemetry, warnings, and overspeed/G-load structural damage
   const finalAtt = extractAttitudeFromQuaternion(state.quaternion);
   state.headingDeg = finalAtt.headingDeg;
   state.pitchDeg = finalAtt.pitchDeg;
   state.rollDeg = finalAtt.rollDeg;
   state.altitudeFt = state.position.y * M_TO_FT;
-  const aglM = Math.max(0, state.position.y - Math.max(SEA_LEVEL, postGroundH));
+  const aglM = Math.max(0, state.position.y - supportSurfaceH);
   state.radarAltFt = aglM * M_TO_FT;
   state.verticalSpeedFpm = state.velocity.y * MPS_TO_FPM;
-  state.gLoad = state.onGround ? 1.0 : clamp(liftMag / (mass * 9.81), -1.8, 6.2);
+  state.gLoad = state.onGround ? 1.0 : clamp(liftMag / (mass * 9.81), -1.8, 6.4);
 
-  const stallThresholdKts = 53 - state.flapNorm * 11;
+  const stallThresholdKts = spec.stallCleanKts - state.flapNorm * 11;
   state.stallWarning = !state.onGround && (aero.stalled || state.airspeedKts < stallThresholdKts);
 
-  const maxFlapKts = state.flapIndex === 2 ? 118 : state.flapIndex === 1 ? 142 : 196;
-  state.overspeedWarning = state.airspeedKts > maxFlapKts || state.airspeedKts > 192;
+  const maxFlapKts = state.flapIndex === 2 ? 122 : state.flapIndex === 1 ? 148 : spec.redlineKts;
+  state.overspeedWarning = state.airspeedKts > maxFlapKts || state.airspeedKts > spec.redlineKts;
 
   if (state.overspeedWarning) {
     const excess = Math.max(0, state.airspeedKts - maxFlapKts);
-    state.damagePct = clamp(state.damagePct + (1.6 + excess * 0.24) * dt, 0, 100);
+    state.airframeDmgPct = clamp(state.airframeDmgPct + (1.6 + excess * 0.22) * dt, 0, 100);
   }
-  if (Math.abs(state.gLoad) > 4.1) {
-    state.damagePct = clamp(state.damagePct + (Math.abs(state.gLoad) - 4.1) * 5.2 * dt, 0, 100);
+  if (Math.abs(state.gLoad) > spec.maxG) {
+    state.airframeDmgPct = clamp(state.airframeDmgPct + (Math.abs(state.gLoad) - spec.maxG) * 5.0 * dt, 0, 100);
   }
+  state.damagePct = clamp(Math.max(state.airframeDmgPct, state.engineStressPct * 0.65), 0, 100);
 
   state.terrainPullUp =
     !state.onGround &&
-    !runwayHit &&
-    state.radarAltFt < 230 &&
+    !postRunway &&
+    state.radarAltFt < 220 &&
     state.verticalSpeedFpm < -680;
 
-  if (state.damagePct >= 100 && !state.crashed) {
+  if (state.airframeDmgPct >= 100 && !state.crashed) {
     recordCrash(
       state,
       'Airframe Structural Failure',

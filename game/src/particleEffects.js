@@ -276,12 +276,13 @@ export function updateParticles(ps, flightState, dt) {
     }
   }
 
-  // Smooth aerodynamic wingtip vortex ribbons during high-bank maneuvers
+  // Smooth aerodynamic wingtip vortex ribbons adapting to active fleet aircraft wingspan
   if (!flightState.onGround && !flightState.crashed && Math.abs(flightState.rollDeg) > 25 && flightState.airspeedKts > 82) {
-    const lTip = new THREE.Vector3(-7.95, 1.18, 0.65)
+    const wt = flightState.aircraftSpec?.wingtipOffset ?? { x: 7.95, y: 1.18, z: 0.65 };
+    const lTip = new THREE.Vector3(-wt.x, wt.y, wt.z)
       .applyQuaternion(flightState.quaternion)
       .add(flightState.position);
-    const rTip = new THREE.Vector3(7.95, 1.18, 0.65)
+    const rTip = new THREE.Vector3(wt.x, wt.y, wt.z)
       .applyQuaternion(flightState.quaternion)
       .add(flightState.position);
     ps.leftTrailPts.push(lTip);

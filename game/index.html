@@ -20,13 +20,13 @@
   </header>
 
   <main id="viewport-main">
-    <canvas id="flight-canvas" aria-label="3D flight view of the Kestrel-28 twin-turboprop over the volcanic archipelago"></canvas>
+    <canvas id="flight-canvas" aria-label="3D flight view over the volcanic archipelago with PBR aircraft and ocean"></canvas>
     <canvas id="hud-canvas" aria-hidden="true"></canvas>
 
     <!-- Loading State (R-27) -->
     <section id="boot-state" class="state-banner" aria-live="polite">
-      <h2>Initializing Avionics &amp; Terrain</h2>
-      <p>Building volcanic archipelago mesh, runway PAPI lighting, and Kestrel-28 flight physics...</p>
+      <h2>Initializing Avionics &amp; Atmospheric Terrain</h2>
+      <p>Building smooth volcanic terrain textures, GLSL ocean shader, and archipelago flight physics...</p>
     </section>
 
     <!-- Error State (R-27) -->
@@ -35,35 +35,60 @@
       <p id="error-detail">Hardware WebGL rendering could not start. Enable WebGL in desktop Chrome and reload the page.</p>
     </section>
 
-    <!-- Sortie Briefing & Pause Deck -->
+    <!-- Sortie Briefing, Fleet Hangar & Pause Deck -->
     <div id="briefing-modal" class="avionics-modal" role="dialog" aria-modal="true" aria-labelledby="briefing-title">
       <div class="modal-card">
         <div class="modal-header">
-          <h2 id="briefing-title" class="modal-title">Kestrel-28 STOL Flight Deck</h2>
-          <p class="modal-subtitle">WARA RWY 09/27 &amp; WAKB RWY 14/32</p>
+          <h2 id="briefing-title" class="modal-title">AtolWing Fleet &amp; Sortie Deck</h2>
+          <p class="modal-subtitle">WARA RWY 09/27 | WAKB RWY 14/32 | WAPO OFFSHORE DECK</p>
         </div>
 
+        <h3 class="section-label">Select Aircraft</h3>
+        <div class="fleet-grid" role="group" aria-label="Select Fleet Aircraft">
+          <button type="button" class="sortie-btn is-selected" data-aircraft-id="islander" aria-pressed="true">
+            <span class="sortie-btn-name">ATW-28 Islander STOL</span>
+            <span class="sortie-btn-meta">PK-AW28 | Balanced STOL | Max 196 KT</span>
+          </button>
+          <button type="button" class="sortie-btn" data-aircraft-id="peregrine" aria-pressed="false">
+            <span class="sortie-btn-name">VX-9 Peregrine Recon</span>
+            <span class="sortie-btn-meta">PK-VX09 | High-Roll Agile | Max 232 KT</span>
+          </button>
+          <button type="button" class="sortie-btn" data-aircraft-id="mariner" aria-pressed="false">
+            <span class="sortie-btn-name">PL-40 Mariner Heavy</span>
+            <span class="sortie-btn-meta">PK-PL40 | Amphibian Long-Range | Max 176 KT</span>
+          </button>
+        </div>
+
+        <h3 class="section-label">Select Sortie Mission (6 Operations)</h3>
         <div class="sortie-grid" role="group" aria-label="Select Sortie Mission">
           <button type="button" class="sortie-btn is-selected" data-mission-index="0" aria-pressed="true">
-            <span class="sortie-btn-name">01. Karang to Kaldera Cargo</span>
+            <span class="sortie-btn-name">01. Coastal Cargo Delivery</span>
             <span class="sortie-btn-meta">Golden Hour | 5 Gates | Land WAKB RWY 14</span>
           </button>
           <button type="button" class="sortie-btn" data-mission-index="1" aria-pressed="false">
-            <span class="sortie-btn-name">02. Selat Angin Gorge Slalom</span>
+            <span class="sortie-btn-name">02. Caldera Ridge Slalom</span>
             <span class="sortie-btn-meta">Tradewind | 6 Canyon Rings | Land WARA RWY 27</span>
           </button>
           <button type="button" class="sortie-btn" data-mission-index="2" aria-pressed="false">
-            <span class="sortie-btn-name">03. Squall Coastal Airdrop</span>
+            <span class="sortie-btn-name">03. Squall Emergency Airdrop</span>
             <span class="sortie-btn-meta">21 KT Crosswind | 2 Flare Drops | Land RWY 27</span>
           </button>
           <button type="button" class="sortie-btn" data-mission-index="3" aria-pressed="false">
-            <span class="sortie-btn-name">04. Twilight Beacon Approach</span>
+            <span class="sortie-btn-name">04. Dusk Beacon ILS Approach</span>
             <span class="sortie-btn-meta">26% Reserve Fuel | PAPI Slope | Land RWY 09</span>
+          </button>
+          <button type="button" class="sortie-btn" data-mission-index="4" aria-pressed="false">
+            <span class="sortie-btn-name">05. Volcanic Thermal Rescue</span>
+            <span class="sortie-btn-meta">Caldera Updrafts | Summit Drop | Land WAKB 14</span>
+          </button>
+          <button type="button" class="sortie-btn" data-mission-index="5" aria-pressed="false">
+            <span class="sortie-btn-name">06. Offshore Platform Approach</span>
+            <span class="sortie-btn-meta">Ocean Crosswind | 260m Steel Deck WAPO 09</span>
           </button>
         </div>
 
         <p id="selected-mission-brief" class="briefing-copy">
-          Depart the Karang Jaya RWY 09 corridor with medical cargo, hold 65-75% cruise throttle to conserve fuel across Selat Angin, and land to a full stop on highland Kaldera Timur RWY 14.
+          ATW-28 Islander STOL (PK-AW28): Depart Karang Jaya RWY 09 with medical freight, hold 65-75% cruise throttle to prevent engine heat and conserve fuel across Selat Angin, then stop on highland Kaldera Timur RWY 14.
         </p>
 
         <div class="controls-summary" aria-label="Keyboard Flight Controls">
@@ -79,7 +104,7 @@
         <div class="logbook-box">
           <h3 class="logbook-heading">Session Flight Logbook</h3>
           <p id="flight-log-empty" class="logbook-empty">
-            No completed landings recorded in this session yet. Launch a sortie and stop on the target runway to log sink rate and rollout distance.
+            No completed landings recorded in this session yet. Launch a sortie and stop on the target runway or offshore deck to log sink rate and rollout distance.
           </p>
           <ul id="flight-log-list" class="logbook-list" hidden></ul>
         </div>
@@ -159,7 +184,7 @@
   </main>
 
   <footer id="deck-footer">
-    <span>KESTREL-28 STOL // ATOLWING EFIS</span>
+    <span id="deck-footer-label">ATW-28 ISLANDER // ATOLWING EFIS</span>
   </footer>
 
   <script type="module" src="./src/gameEngine.js"></script>

@@ -1,30 +1,43 @@
-// Crisp geometric & high-DPI marked runways (RWY 09/27 & RWY 14/32), dynamic PAPI lights, windsocks, and 3D rings.
+// Shadow-receiving high-DPI runways (WARA, WAKB), offshore STOL platform (WAPO), textured hangars, radar domes, PAPI, windsocks & rings.
 import * as THREE from '../vendor/three.min.js';
 import { RUNWAY_SPECS, sampleTerrainHeight } from './terrainWorld.js';
 
-function createAsphaltGrainAndSkidTexture() {
-  // 1024 x 2048 high-res asphalt texture oriented along runway length (V = along length)
+function createAsphaltGrainAndSkidTexture(isSteelDeck = false) {
   const canvas = document.createElement('canvas');
   canvas.width = 1024;
   canvas.height = 2048;
   const ctx = canvas.getContext('2d');
 
-  ctx.fillStyle = '#242a30';
+  ctx.fillStyle = isSteelDeck ? '#28323c' : '#242a30';
   ctx.fillRect(0, 0, 1024, 2048);
 
-  // Fine aggregate asphalt noise & longitudinal paving seams
-  for (let seamX of [256, 512, 768]) {
-    ctx.fillStyle = 'rgba(15, 18, 22, 0.45)';
-    ctx.fillRect(seamX - 2, 0, 4, 2048);
+  if (isSteelDeck) {
+    // Non-skid steel flight deck plates & yellow perimeter hazard stripes
+    ctx.strokeStyle = 'rgba(15, 20, 26, 0.45)';
+    ctx.lineWidth = 3;
+    for (let y = 0; y < 2048; y += 128) {
+      ctx.beginPath();
+      ctx.moveTo(0, y);
+      ctx.lineTo(1024, y);
+      ctx.stroke();
+    }
+    ctx.fillStyle = '#e5a928';
+    ctx.fillRect(0, 0, 26, 2048);
+    ctx.fillRect(998, 0, 26, 2048);
+  } else {
+    for (let seamX of [256, 512, 768]) {
+      ctx.fillStyle = 'rgba(15, 18, 22, 0.45)';
+      ctx.fillRect(seamX - 2, 0, 4, 2048);
+    }
   }
+
   for (let i = 0; i < 2400; i += 1) {
     const gx = (Math.imul(i, 2654435761) >>> 22) & 1023;
     const gy = (Math.imul(i, 1597334677) >>> 21) & 2047;
-    ctx.fillStyle = i % 2 === 0 ? 'rgba(255, 255, 255, 0.035)' : 'rgba(8, 10, 12, 0.06)';
+    ctx.fillStyle = i % 2 === 0 ? 'rgba(255, 255, 255, 0.038)' : 'rgba(8, 10, 12, 0.065)';
     ctx.fillRect(gx, gy, 5, 8);
   }
 
-  // Realistic multi-pass dark rubber touchdown skid marks at both touchdown zones
   for (let s = 0; s < 95; s += 1) {
     const spread = ((Math.sin(s * 12.7) + Math.sin(s * 4.3)) * 0.5) * 230;
     const sx = 512 + spread;
@@ -32,8 +45,6 @@ function createAsphaltGrainAndSkidTexture() {
     const width = 4 + (s % 3) * 3;
     const alpha = 0.14 + (s % 5) * 0.045;
     ctx.fillStyle = `rgba(9, 11, 13, ${alpha.toFixed(3)})`;
-
-    // Primary end touchdown zone (near V=0 -> bottom/top depending on UV; paint both ends!)
     const y1 = 195 + (s % 11) * 24;
     const y2 = 1853 - (s % 11) * 24 - len;
     ctx.fillRect(sx, y1, width, len);
@@ -41,7 +52,33 @@ function createAsphaltGrainAndSkidTexture() {
   }
 
   const tex = new THREE.CanvasTexture(canvas);
+  tex.colorSpace = THREE.SRGBColorSpace;
   tex.anisotropy = 16;
+  return tex;
+}
+
+function createCorrugatedHangarTexture() {
+  const canvas = document.createElement('canvas');
+  canvas.width = 256;
+  canvas.height = 128;
+  const ctx = canvas.getContext('2d');
+  ctx.fillStyle = '#cdd6de';
+  ctx.fillRect(0, 0, 256, 128);
+  for (let x = 0; x < 256; x += 6) {
+    ctx.fillStyle = x % 12 === 0 ? 'rgba(255,255,255,0.22)' : 'rgba(30,42,54,0.18)';
+    ctx.fillRect(x, 0, 3, 128);
+  }
+  // Open dark hangar bay portal & orange aviation stripe
+  ctx.fillStyle = '#d95d24';
+  ctx.fillRect(0, 12, 256, 10);
+  ctx.fillStyle = '#18212b';
+  ctx.fillRect(48, 38, 160, 90);
+  ctx.strokeStyle = '#ffbf54';
+  ctx.lineWidth = 3;
+  ctx.strokeRect(48, 38, 160, 89);
+
+  const tex = new THREE.CanvasTexture(canvas);
+  tex.colorSpace = THREE.SRGBColorSpace;
   return tex;
 }
 
@@ -58,7 +95,6 @@ function createRunwayNumberDecalTexture(labelText) {
   ctx.textBaseline = 'middle';
   ctx.fillText(labelText, 256, 266);
 
-  // Subtle rubber tire scuff streaks across the painted digits for authentic flown look
   ctx.globalCompositeOperation = 'destination-out';
   for (let i = 0; i < 14; i += 1) {
     const x = 70 + i * 28;
@@ -68,6 +104,7 @@ function createRunwayNumberDecalTexture(labelText) {
   ctx.globalCompositeOperation = 'source-over';
 
   const tex = new THREE.CanvasTexture(canvas);
+  tex.colorSpace = THREE.SRGBColorSpace;
   tex.anisotropy = 16;
   return tex;
 }
@@ -79,70 +116,75 @@ function addCrispRunwayMarkings(rwyGroup, spec) {
 
   const paintMat = new THREE.MeshStandardMaterial({
     color: 0xf1f5f9,
-    roughness: 0.62,
+    roughness: 0.65,
     metalness: 0.04,
     polygonOffset: true,
     polygonOffsetFactor: -2,
     polygonOffsetUnits: -2,
   });
 
-  const addStrip = (lenX, widZ, posX, posZ) => {
-    const m = new THREE.Mesh(new THREE.PlaneGeometry(lenX, widZ), paintMat);
+  const addStrip = (lenX, widZ, posX, posZ, mat = paintMat) => {
+    const m = new THREE.Mesh(new THREE.PlaneGeometry(lenX, widZ), mat);
     m.rotation.x = -Math.PI * 0.5;
     m.position.set(posX, paintY, posZ);
+    m.receiveShadow = true;
     rwyGroup.add(m);
   };
 
-  // Continuous side edge stripes & end threshold bars
   addStrip(spec.length - 12, 0.85, 0, -halfW + 1.1);
   addStrip(spec.length - 12, 0.85, 0, halfW - 1.1);
   addStrip(1.8, spec.width - 2.2, -halfL + 7.5, 0);
   addStrip(1.8, spec.width - 2.2, halfL - 7.5, 0);
 
-  // Crisp 3D geometric "piano-key" threshold stripes on both ends
   const keyOffsets = [-13.2, -10.4, -7.6, -4.8, 4.8, 7.6, 10.4, 13.2].filter(
     (z) => Math.abs(z) < halfW - 2.4,
   );
+  const keyLen = spec.offshore ? 16 : 28;
   for (let i = 0; i < keyOffsets.length; i += 1) {
     const kz = keyOffsets[i];
-    addStrip(28, 1.55, -halfL + 26, kz);
-    addStrip(28, 1.55, halfL - 26, kz);
+    addStrip(keyLen, 1.55, -halfL + (spec.offshore ? 18 : 26), kz);
+    addStrip(keyLen, 1.55, halfL - (spec.offshore ? 18 : 26), kz);
   }
 
-  // Touchdown zone blocks & bold aiming-point ("1000-ft") rectangles
-  for (let side of [-1, 1]) {
-    addStrip(46, 3.8, -halfL + 148, side * (halfW * 0.46));
-    addStrip(46, 3.8, halfL - 148, side * (halfW * 0.46));
-    addStrip(18, 1.4, -halfL + 98, side * (halfW * 0.44));
-    addStrip(18, 1.4, -halfL + 206, side * (halfW * 0.44));
-    addStrip(18, 1.4, halfL - 98, side * (halfW * 0.44));
-    addStrip(18, 1.4, halfL - 206, side * (halfW * 0.44));
+  if (!spec.offshore) {
+    for (let side of [-1, 1]) {
+      addStrip(46, 3.8, -halfL + 148, side * (halfW * 0.46));
+      addStrip(46, 3.8, halfL - 148, side * (halfW * 0.46));
+      addStrip(18, 1.4, -halfL + 98, side * (halfW * 0.44));
+      addStrip(18, 1.4, -halfL + 206, side * (halfW * 0.44));
+      addStrip(18, 1.4, halfL - 98, side * (halfW * 0.44));
+      addStrip(18, 1.4, halfL - 206, side * (halfW * 0.44));
+    }
   }
 
-  // Centerline dashes between the runway numbers
-  for (let x = -halfL + 96; x <= halfL - 96; x += 38) {
-    addStrip(21, 0.95, x, 0);
+  const startDash = spec.offshore ? -halfL + 58 : -halfL + 96;
+  const endDash = spec.offshore ? halfL - 58 : halfL - 96;
+  for (let x = startDash; x <= endDash; x += 34) {
+    addStrip(19, 0.95, x, 0);
   }
 
-  // High-DPI runway designation number decals ('09' at -X end facing +X, '27' at +X end facing -X)
   const makeNumMesh = (label, posX, rotZ) => {
     const tex = createRunwayNumberDecalTexture(label);
-    const mat = new THREE.MeshBasicMaterial({
+    const mat = new THREE.MeshStandardMaterial({
       map: tex,
       transparent: true,
+      roughness: 0.65,
       polygonOffset: true,
       polygonOffsetFactor: -3,
       polygonOffsetUnits: -3,
     });
-    const mesh = new THREE.Mesh(new THREE.PlaneGeometry(18, 18), mat);
+    const sz = spec.offshore ? 14 : 18;
+    const mesh = new THREE.Mesh(new THREE.PlaneGeometry(sz, sz), mat);
     mesh.rotation.x = -Math.PI * 0.5;
     mesh.rotation.z = rotZ;
     mesh.position.set(posX, paintY + 0.008, 0);
+    mesh.receiveShadow = true;
     rwyGroup.add(mesh);
   };
 
-  makeNumMesh(spec.primaryLabel, -halfL + 60, -Math.PI * 0.5);
-  makeNumMesh(spec.secondaryLabel, halfL - 60, Math.PI * 0.5);
+  const numOff = spec.offshore ? 39 : 60;
+  makeNumMesh(spec.primaryLabel, -halfL + numOff, -Math.PI * 0.5);
+  makeNumMesh(spec.secondaryLabel, halfL - numOff, Math.PI * 0.5);
 }
 
 function buildWindsockUnit() {
@@ -150,6 +192,7 @@ function buildWindsockUnit() {
   const poleMat = new THREE.MeshStandardMaterial({ color: 0xd8dee4, roughness: 0.45 });
   const pole = new THREE.Mesh(new THREE.CylinderGeometry(0.12, 0.16, 7.2, 8), poleMat);
   pole.position.y = 3.6;
+  pole.castShadow = true;
   root.add(pole);
 
   const ringCircle = new THREE.Mesh(
@@ -198,6 +241,7 @@ function buildPapiBoxRow() {
 
     const housing = new THREE.Mesh(new THREE.BoxGeometry(1.4, 0.75, 1.6), boxMat);
     housing.position.y = 0.65;
+    housing.castShadow = true;
     unit.add(housing);
 
     const lampMat = new THREE.MeshBasicMaterial({ color: 0xffffff });
@@ -209,6 +253,47 @@ function buildPapiBoxRow() {
     rowGroup.add(unit);
   }
   return { rowGroup, lamps };
+}
+
+function buildOffshorePlatformStructure(rwyGroup, spec) {
+  const steelMat = new THREE.MeshStandardMaterial({ color: 0x3b4856, roughness: 0.52, metalness: 0.58 });
+  const yellowSteelMat = new THREE.MeshStandardMaterial({ color: 0xd99b26, roughness: 0.48, metalness: 0.42 });
+
+  // Deep structural steel deck box slab underneath the runway top surface
+  const deckSlab = new THREE.Mesh(new THREE.BoxGeometry(spec.length + 6, 4.4, spec.width + 6), steelMat);
+  deckSlab.position.set(0, -2.3, 0);
+  deckSlab.castShadow = true;
+  deckSlab.receiveShadow = true;
+  rwyGroup.add(deckSlab);
+
+  // 6 massive caisson legs plunging down 38 m into ocean floor
+  for (let lx of [-spec.length * 0.36, 0, spec.length * 0.36]) {
+    for (let lz of [-spec.width * 0.36, spec.width * 0.36]) {
+      const leg = new THREE.Mesh(new THREE.CylinderGeometry(3.2, 3.8, 42, 12), yellowSteelMat);
+      leg.position.set(lx, -23, lz);
+      rwyGroup.add(leg);
+    }
+  }
+
+  // Deck-edge beacon lights (amber/blue maritime deck lighting)
+  const blueMat = new THREE.MeshBasicMaterial({ color: 0x45c8ff });
+  for (let x = -spec.length * 0.5; x <= spec.length * 0.5 + 1; x += 26) {
+    for (let zSide of [-spec.width * 0.5 - 1.2, spec.width * 0.5 + 1.2]) {
+      const b = new THREE.Mesh(new THREE.SphereGeometry(0.46, 6, 6), blueMat);
+      b.position.set(x, 0.45, zSide);
+      rwyGroup.add(b);
+    }
+  }
+
+  // Platform operations island & comms tower on north flank
+  const opsCab = new THREE.Mesh(new THREE.BoxGeometry(26, 12, 14), steelMat);
+  opsCab.position.set(22, 6, -spec.width * 0.5 - 7);
+  opsCab.castShadow = true;
+  const mast = new THREE.Mesh(new THREE.CylinderGeometry(0.45, 0.85, 22, 8), yellowSteelMat);
+  mast.position.set(28, 22, -spec.width * 0.5 - 7);
+  const beacon = new THREE.Mesh(new THREE.SphereGeometry(0.85, 8, 8), new THREE.MeshBasicMaterial({ color: 0xff3b30 }));
+  beacon.position.set(28, 33.5, -spec.width * 0.5 - 7);
+  rwyGroup.add(opsCab, mast, beacon);
 }
 
 export function computePapiSlopeLights(aircraftPos, thresholdWorldPos) {
@@ -234,12 +319,19 @@ export function buildAerodromesAndRings(scene) {
   const runways = [];
   const windsocks = [];
   const approachStrobes = [];
+  const radarScanners = [];
 
-  const sharedAsphaltTex = createAsphaltGrainAndSkidTexture();
-  const apronMat = new THREE.MeshStandardMaterial({ color: 0x2d333a, roughness: 0.85 });
-  const hangarMat = new THREE.MeshStandardMaterial({ color: 0xdbe2e8, roughness: 0.55 });
-  const roofMat = new THREE.MeshStandardMaterial({ color: 0xc95227, roughness: 0.5 });
+  const landAsphaltTex = createAsphaltGrainAndSkidTexture(false);
+  const steelDeckTex = createAsphaltGrainAndSkidTexture(true);
+  const hangarTex = createCorrugatedHangarTexture();
+
+  const apronMat = new THREE.MeshStandardMaterial({ color: 0x30373f, roughness: 0.84 });
+  const taxiYellowMat = new THREE.MeshStandardMaterial({ color: 0xf2b830, roughness: 0.65 });
+  const hangarMat = new THREE.MeshStandardMaterial({ map: hangarTex, roughness: 0.52, metalness: 0.36 });
+  const hangarSideMat = new THREE.MeshStandardMaterial({ color: 0xcad3dc, roughness: 0.52, metalness: 0.34 });
+  const roofMat = new THREE.MeshStandardMaterial({ color: 0xc95227, roughness: 0.50 });
   const towerGlassMat = new THREE.MeshBasicMaterial({ color: 0x7ef2d4 });
+  const tankMat = new THREE.MeshStandardMaterial({ color: 0xe6ebef, roughness: 0.42, metalness: 0.32 });
 
   for (let r = 0; r < RUNWAY_SPECS.length; r += 1) {
     const spec = RUNWAY_SPECS[r];
@@ -249,78 +341,118 @@ export function buildAerodromesAndRings(scene) {
     const rotY = ((90 - spec.headingDeg) * Math.PI) / 180;
     rwyGroup.rotation.y = rotY;
 
-    // Orient PlaneGeometry(width, length) then rotateZ(-90 deg) so high-res 2048 V axis maps along runway length
     const baseGeo = new THREE.PlaneGeometry(spec.width, spec.length);
     baseGeo.rotateX(-Math.PI * 0.5);
     baseGeo.rotateY(-Math.PI * 0.5);
     const rwyMesh = new THREE.Mesh(
       baseGeo,
-      new THREE.MeshStandardMaterial({ map: sharedAsphaltTex, roughness: 0.80, metalness: 0.05 }),
+      new THREE.MeshStandardMaterial({
+        map: spec.offshore ? steelDeckTex : landAsphaltTex,
+        roughness: spec.offshore ? 0.68 : 0.80,
+        metalness: spec.offshore ? 0.25 : 0.05,
+      }),
     );
+    rwyMesh.receiveShadow = true;
     rwyGroup.add(rwyMesh);
 
     addCrispRunwayMarkings(rwyGroup, spec);
 
-    // Runway edge lights + green threshold bars
-    const edgeLightMat = new THREE.MeshBasicMaterial({ color: 0xfff4d2 });
-    const greenBarMat = new THREE.MeshBasicMaterial({ color: 0x36f57f });
-    for (let x = -spec.length * 0.5; x <= spec.length * 0.5 + 1; x += 58) {
-      for (let zSide of [-spec.width * 0.5 - 1.4, spec.width * 0.5 + 1.4]) {
-        const bulb = new THREE.Mesh(new THREE.SphereGeometry(0.42, 6, 6), edgeLightMat);
-        bulb.position.set(x, 0.45, zSide);
-        rwyGroup.add(bulb);
+    if (spec.offshore) {
+      buildOffshorePlatformStructure(rwyGroup, spec);
+    } else {
+      const edgeLightMat = new THREE.MeshBasicMaterial({ color: 0xfff4d2 });
+      const greenBarMat = new THREE.MeshBasicMaterial({ color: 0x36f57f });
+      for (let x = -spec.length * 0.5; x <= spec.length * 0.5 + 1; x += 58) {
+        for (let zSide of [-spec.width * 0.5 - 1.4, spec.width * 0.5 + 1.4]) {
+          const bulb = new THREE.Mesh(new THREE.SphereGeometry(0.42, 6, 6), edgeLightMat);
+          bulb.position.set(x, 0.45, zSide);
+          rwyGroup.add(bulb);
+        }
       }
-    }
-    for (let zBar = -spec.width * 0.42; zBar <= spec.width * 0.42; zBar += 4.2) {
-      const g1 = new THREE.Mesh(new THREE.SphereGeometry(0.48, 6, 6), greenBarMat);
-      g1.position.set(-spec.length * 0.5 + 3, 0.45, zBar);
-      const g2 = new THREE.Mesh(new THREE.SphereGeometry(0.48, 6, 6), greenBarMat);
-      g2.position.set(spec.length * 0.5 - 3, 0.45, zBar);
-      rwyGroup.add(g1, g2);
+      for (let zBar = -spec.width * 0.42; zBar <= spec.width * 0.42; zBar += 4.2) {
+        const g1 = new THREE.Mesh(new THREE.SphereGeometry(0.48, 6, 6), greenBarMat);
+        g1.position.set(-spec.length * 0.5 + 3, 0.45, zBar);
+        const g2 = new THREE.Mesh(new THREE.SphereGeometry(0.48, 6, 6), greenBarMat);
+        g2.position.set(spec.length * 0.5 - 3, 0.45, zBar);
+        rwyGroup.add(g1, g2);
+      }
+
+      for (let s = 1; s <= 6; s += 1) {
+        const strobe = new THREE.Mesh(
+          new THREE.SphereGeometry(0.75, 8, 8),
+          new THREE.MeshBasicMaterial({ color: 0xffd27d }),
+        );
+        strobe.position.set(-spec.length * 0.5 - s * 68, 0.9, 0);
+        rwyGroup.add(strobe);
+        approachStrobes.push({ mesh: strobe, index: s });
+      }
+
+      // Detailed Apron, Taxiway Connector with yellow centerline, Corrugated Hangar, Control Tower + Spinning Radar & Fuel Tanks
+      const apron = new THREE.Mesh(new THREE.PlaneGeometry(165, 62), apronMat);
+      apron.rotation.x = -Math.PI * 0.5;
+      apron.position.set(-24, -0.01, -spec.width * 0.5 - 31);
+      apron.receiveShadow = true;
+
+      const taxiLine = new THREE.Mesh(new THREE.PlaneGeometry(155, 0.65), taxiYellowMat);
+      taxiLine.rotation.x = -Math.PI * 0.5;
+      taxiLine.position.set(-24, 0.02, -spec.width * 0.5 - 12);
+      rwyGroup.add(apron, taxiLine);
+
+      const hangarMats = [hangarSideMat, hangarSideMat, roofMat, hangarSideMat, hangarMat, hangarSideMat];
+      const hangar = new THREE.Mesh(new THREE.BoxGeometry(40, 12, 28), hangarMats);
+      hangar.position.set(-64, 6.0, -spec.width * 0.5 - 38);
+      hangar.castShadow = true;
+      hangar.receiveShadow = true;
+
+      const hangarRoof = new THREE.Mesh(new THREE.BoxGeometry(42, 2.2, 30), roofMat);
+      hangarRoof.position.set(-64, 12.8, -spec.width * 0.5 - 38);
+      hangarRoof.castShadow = true;
+
+      // Control Tower with rotating white radar dome scanner
+      const towerShaft = new THREE.Mesh(new THREE.BoxGeometry(8.5, 20, 8.5), hangarSideMat);
+      towerShaft.position.set(14, 10, -spec.width * 0.5 - 34);
+      towerShaft.castShadow = true;
+      towerShaft.receiveShadow = true;
+      const towerCab = new THREE.Mesh(new THREE.CylinderGeometry(7.0, 5.6, 5.2, 8), towerGlassMat);
+      towerCab.position.set(14, 22.2, -spec.width * 0.5 - 34);
+      const towerRoof = new THREE.Mesh(new THREE.ConeGeometry(7.8, 2.8, 8), roofMat);
+      towerRoof.position.set(14, 26.0, -spec.width * 0.5 - 34);
+
+      const radarHub = new THREE.Group();
+      radarHub.position.set(14, 28.4, -spec.width * 0.5 - 34);
+      const radarBar = new THREE.Mesh(new THREE.BoxGeometry(5.6, 0.9, 0.7), tankMat);
+      const radarDome = new THREE.Mesh(new THREE.SphereGeometry(1.8, 12, 10), tankMat);
+      radarDome.position.y = -0.6;
+      radarHub.add(radarBar, radarDome);
+      radarScanners.push(radarHub);
+
+      // Twin AVGAS / JET-A1 fuel storage tanks beside apron
+      for (let t = 0; t < 2; t += 1) {
+        const tank = new THREE.Mesh(new THREE.CylinderGeometry(3.6, 3.6, 11.5, 14), tankMat);
+        tank.rotation.z = Math.PI * 0.5;
+        tank.position.set(-16 + t * 14, 3.8, -spec.width * 0.5 - 46);
+        tank.castShadow = true;
+        rwyGroup.add(tank);
+      }
+      rwyGroup.add(hangar, hangarRoof, towerShaft, towerCab, towerRoof, radarHub);
     }
 
-    for (let s = 1; s <= 6; s += 1) {
-      const strobe = new THREE.Mesh(
-        new THREE.SphereGeometry(0.75, 8, 8),
-        new THREE.MeshBasicMaterial({ color: 0xffd27d }),
-      );
-      strobe.position.set(-spec.length * 0.5 - s * 68, 0.9, 0);
-      rwyGroup.add(strobe);
-      approachStrobes.push({ mesh: strobe, index: s });
-    }
-
+    const papiOff = spec.offshore ? 44 : 128;
+    const papiSide = spec.offshore ? spec.width * 0.5 - 4 : spec.width * 0.5 + 16;
     const papiPrimary = buildPapiBoxRow();
-    papiPrimary.rowGroup.position.set(-spec.length * 0.5 + 128, 0, -spec.width * 0.5 - 16);
+    papiPrimary.rowGroup.position.set(-spec.length * 0.5 + papiOff, 0, -papiSide);
     papiPrimary.rowGroup.rotation.y = Math.PI * 0.5;
     rwyGroup.add(papiPrimary.rowGroup);
 
     const papiSecondary = buildPapiBoxRow();
-    papiSecondary.rowGroup.position.set(spec.length * 0.5 - 128, 0, spec.width * 0.5 + 16);
+    papiSecondary.rowGroup.position.set(spec.length * 0.5 - papiOff, 0, papiSide);
     papiSecondary.rowGroup.rotation.y = -Math.PI * 0.5;
     rwyGroup.add(papiSecondary.rowGroup);
 
     const ws = buildWindsockUnit();
-    ws.root.position.set(-spec.length * 0.5 + 95, 0, spec.width * 0.5 + 18);
+    ws.root.position.set(-spec.length * 0.5 + (spec.offshore ? 36 : 95), 0, spec.width * 0.5 + (spec.offshore ? -6 : 18));
     rwyGroup.add(ws.root);
     windsocks.push({ ...ws, rwyRotY: rotY });
-
-    const apron = new THREE.Mesh(new THREE.PlaneGeometry(130, 52), apronMat);
-    apron.rotation.x = -Math.PI * 0.5;
-    apron.position.set(-30, -0.02, -spec.width * 0.5 - 26);
-    rwyGroup.add(apron);
-
-    const hangar = new THREE.Mesh(new THREE.BoxGeometry(36, 11, 26), hangarMat);
-    hangar.position.set(-56, 5.5, -spec.width * 0.5 - 32);
-    const hangarRoof = new THREE.Mesh(new THREE.BoxGeometry(38, 2.2, 28), roofMat);
-    hangarRoof.position.set(-56, 11.8, -spec.width * 0.5 - 32);
-
-    const towerShaft = new THREE.Mesh(new THREE.BoxGeometry(8.5, 20, 8.5), hangarMat);
-    towerShaft.position.set(12, 10, -spec.width * 0.5 - 30);
-    const towerCab = new THREE.Mesh(new THREE.CylinderGeometry(6.8, 5.6, 5.2, 8), towerGlassMat);
-    towerCab.position.set(12, 22.2, -spec.width * 0.5 - 30);
-    const towerRoof = new THREE.Mesh(new THREE.ConeGeometry(7.6, 2.8, 8), roofMat);
-    towerRoof.position.set(12, 26.0, -spec.width * 0.5 - 30);
-    rwyGroup.add(hangar, hangarRoof, towerShaft, towerCab, towerRoof);
 
     aerodromeGroup.add(rwyGroup);
 
@@ -333,14 +465,14 @@ export function buildAerodromesAndRings(scene) {
       papiPrimary,
       papiSecondary,
       primaryThresholdPos: new THREE.Vector3(
-        spec.centerX - fwdX * (spec.length * 0.5 - 128),
+        spec.centerX - fwdX * (spec.length * 0.5 - papiOff),
         spec.elevation,
-        spec.centerZ - fwdZ * (spec.length * 0.5 - 128),
+        spec.centerZ - fwdZ * (spec.length * 0.5 - papiOff),
       ),
       secondaryThresholdPos: new THREE.Vector3(
-        spec.centerX + fwdX * (spec.length * 0.5 - 128),
+        spec.centerX + fwdX * (spec.length * 0.5 - papiOff),
         spec.elevation,
-        spec.centerZ + fwdZ * (spec.length * 0.5 - 128),
+        spec.centerZ + fwdZ * (spec.length * 0.5 - papiOff),
       ),
     });
   }
@@ -356,10 +488,38 @@ export function buildAerodromesAndRings(scene) {
     runways,
     windsocks,
     approachStrobes,
+    radarScanners,
     ringsGroup,
     ringInstances: [],
     dropZoneInstances: [],
   };
+}
+
+function createFlarePlumeTexture() {
+  const canvas = document.createElement('canvas');
+  canvas.width = 64;
+  canvas.height = 256;
+  const ctx = canvas.getContext('2d');
+  const g = ctx.createLinearGradient(0, 256, 0, 0);
+  g.addColorStop(0.0, 'rgba(255, 195, 110, 0.82)');
+  g.addColorStop(0.18, 'rgba(255, 118, 46, 0.52)');
+  g.addColorStop(0.58, 'rgba(235, 92, 38, 0.18)');
+  g.addColorStop(1.0, 'rgba(220, 70, 30, 0.0)');
+  ctx.fillStyle = g;
+  ctx.fillRect(0, 0, 64, 256);
+
+  // Soft horizontal fade so pillar never has hard edges
+  ctx.globalCompositeOperation = 'destination-in';
+  const hg = ctx.createLinearGradient(0, 0, 64, 0);
+  hg.addColorStop(0.0, 'rgba(255,255,255,0.0)');
+  hg.addColorStop(0.5, 'rgba(255,255,255,1.0)');
+  hg.addColorStop(1.0, 'rgba(255,255,255,0.0)');
+  ctx.fillStyle = hg;
+  ctx.fillRect(0, 0, 64, 256);
+
+  const tex = new THREE.CanvasTexture(canvas);
+  tex.colorSpace = THREE.SRGBColorSpace;
+  return tex;
 }
 
 export function rebuildMissionRings(aids, ringDefs = [], dropZoneDefs = []) {
@@ -368,6 +528,7 @@ export function rebuildMissionRings(aids, ringDefs = [], dropZoneDefs = []) {
   }
   aids.ringInstances = [];
   aids.dropZoneInstances = [];
+  const flareTex = dropZoneDefs.length > 0 ? createFlarePlumeTexture() : null;
 
   for (let i = 0; i < ringDefs.length; i += 1) {
     const def = ringDefs[i];
@@ -377,39 +538,47 @@ export function rebuildMissionRings(aids, ringDefs = [], dropZoneDefs = []) {
     const rotRad = ((def.headingDeg ?? 90) * Math.PI) / 180;
     holder.rotation.y = -rotRad;
 
-    const frameRing = new THREE.Mesh(
-      new THREE.TorusGeometry(radius + 1.8, 1.05, 10, 36),
-      new THREE.MeshStandardMaterial({ color: 0x162430, roughness: 0.4, metalness: 0.5 }),
-    );
+    // Sleek luminous holographic aviation gate (no heavy cartoon black border!)
     const glowMat = new THREE.MeshBasicMaterial({
-      color: i === 0 ? 0xff9f2e : 0x45e6d6,
+      color: i === 0 ? 0xffb347 : 0x52ebd8,
+      transparent: true,
+      opacity: i === 0 ? 0.90 : 0.65,
     });
-    const coreRing = new THREE.Mesh(new THREE.TorusGeometry(radius, 1.35, 12, 40), glowMat);
+    const coreRing = new THREE.Mesh(new THREE.TorusGeometry(radius, 0.82, 12, 48), glowMat);
+
+    const outerWireMat = new THREE.MeshBasicMaterial({
+      color: i === 0 ? 0xffe0a3 : 0x8ef7eb,
+      transparent: true,
+      opacity: i === 0 ? 0.55 : 0.30,
+    });
+    const outerWire = new THREE.Mesh(new THREE.TorusGeometry(radius + 2.0, 0.28, 8, 48), outerWireMat);
 
     const haloMat = new THREE.MeshBasicMaterial({
       color: i === 0 ? 0xffb347 : 0x45e6d6,
       transparent: true,
-      opacity: i === 0 ? 0.22 : 0.08,
+      opacity: i === 0 ? 0.16 : 0.06,
       side: THREE.DoubleSide,
       depthWrite: false,
+      blending: THREE.AdditiveBlending,
     });
-    const haloRing = new THREE.Mesh(new THREE.RingGeometry(radius - 2.6, radius + 3.4, 36), haloMat);
+    const haloRing = new THREE.Mesh(new THREE.RingGeometry(radius - 3.2, radius + 3.8, 48), haloMat);
 
     for (let f = 0; f < 4; f += 1) {
       const ang = (f * Math.PI) / 2;
-      const fin = new THREE.Mesh(new THREE.ConeGeometry(1.9, 5.2, 6), glowMat);
-      fin.position.set(Math.cos(ang) * (radius - 2.5), Math.sin(ang) * (radius - 2.5), 0);
+      const fin = new THREE.Mesh(new THREE.ConeGeometry(1.4, 4.2, 6), glowMat);
+      fin.position.set(Math.cos(ang) * (radius - 2.3), Math.sin(ang) * (radius - 2.3), 0);
       fin.rotation.z = ang + Math.PI * 0.5;
       holder.add(fin);
     }
 
-    holder.add(frameRing, coreRing, haloRing);
+    holder.add(coreRing, outerWire, haloRing);
     aids.ringsGroup.add(holder);
     aids.ringInstances.push({
       def,
       radius,
       holder,
       glowMat,
+      outerWireMat,
       haloMat,
       captured: false,
     });
@@ -422,25 +591,39 @@ export function rebuildMissionRings(aids, ringDefs = [], dropZoneDefs = []) {
     dzGroup.position.set(dz.x, groundY, dz.z);
 
     const ringMat = new THREE.MeshBasicMaterial({
-      color: 0xff8c2b,
+      color: 0xff9436,
+      transparent: true,
+      opacity: 0.82,
       side: THREE.DoubleSide,
     });
-    const outerCircle = new THREE.Mesh(new THREE.RingGeometry(32, 38, 36), ringMat);
+    const outerCircle = new THREE.Mesh(new THREE.RingGeometry(28, 33, 40), ringMat);
     outerCircle.rotation.x = -Math.PI * 0.5;
-    const innerCrossA = new THREE.Mesh(new THREE.PlaneGeometry(28, 4.5), ringMat);
+    const innerCrossA = new THREE.Mesh(new THREE.PlaneGeometry(24, 3.6), ringMat);
     innerCrossA.rotation.x = -Math.PI * 0.5;
-    const innerCrossB = new THREE.Mesh(new THREE.PlaneGeometry(4.5, 28), ringMat);
+    const innerCrossB = new THREE.Mesh(new THREE.PlaneGeometry(3.6, 24), ringMat);
     innerCrossB.rotation.x = -Math.PI * 0.5;
 
+    // Soft volumetric crossed gradient smoke-flare plume (no hard opaque pipe!)
     const flareMat = new THREE.MeshBasicMaterial({
-      color: 0xff7029,
+      map: flareTex,
       transparent: true,
-      opacity: 0.34,
+      opacity: 0.85,
       side: THREE.DoubleSide,
       depthWrite: false,
+      blending: THREE.AdditiveBlending,
     });
-    const flarePillar = new THREE.Mesh(new THREE.CylinderGeometry(4.8, 1.4, 72, 12, 1, true), flareMat);
-    flarePillar.position.y = 36;
+    const flarePillar = new THREE.Group();
+    const planeA = new THREE.Mesh(new THREE.PlaneGeometry(22, 76), flareMat);
+    planeA.position.y = 38;
+    const planeB = new THREE.Mesh(new THREE.PlaneGeometry(22, 76), flareMat);
+    planeB.rotation.y = Math.PI * 0.5;
+    planeB.position.y = 38;
+    const emberCore = new THREE.Mesh(
+      new THREE.SphereGeometry(2.6, 10, 8),
+      new THREE.MeshBasicMaterial({ color: 0xffd27a }),
+    );
+    emberCore.position.y = 1.6;
+    flarePillar.add(planeA, planeB, emberCore);
 
     dzGroup.add(outerCircle, innerCrossA, innerCrossB, flarePillar);
     aids.ringsGroup.add(dzGroup);
@@ -464,6 +647,7 @@ export function checkRingCapture(ringInst, prevPos, curPos) {
   if (distCur <= hitRadius || (distPrev + distCur) * 0.5 <= hitRadius) {
     ringInst.captured = true;
     ringInst.glowMat.color.setHex(0x4bf598);
+    ringInst.outerWireMat?.color.setHex(0x8ff7c0);
     ringInst.haloMat.color.setHex(0x4bf598);
     ringInst.haloMat.opacity = 0.08;
     return true;
@@ -482,6 +666,10 @@ export function updateRunwayAidsAndRings(aids, aircraftPos, activeRingIdx, weath
     for (let l = 0; l < 4; l += 1) {
       rwy.papiSecondary.lamps[l].color.setHex(l < whiteCount2 ? 0xfff8eb : 0xff2b24);
     }
+  }
+
+  for (let i = 0; i < aids.radarScanners.length; i += 1) {
+    aids.radarScanners[i].rotation.y = elapsedSec * 1.45;
   }
 
   const activePulse = Math.floor((elapsedSec * 7.5) % 8);
@@ -506,14 +694,16 @@ export function updateRunwayAidsAndRings(aids, aircraftPos, activeRingIdx, weath
       continue;
     }
     if (i === activeRingIdx) {
-      ring.glowMat.color.setHex(0xff9f2e);
+      ring.glowMat.color.setHex(0xffb347);
+      ring.outerWireMat?.color.setHex(0xffe0a3);
       ring.haloMat.color.setHex(0xffb84d);
-      ring.haloMat.opacity = 0.24 + Math.sin(elapsedSec * 4.0) * 0.06;
+      ring.haloMat.opacity = 0.16 + Math.sin(elapsedSec * 4.0) * 0.05;
       const pulse = 1.0 + Math.sin(elapsedSec * 3.2) * 0.025;
       ring.holder.scale.setScalar(pulse);
     } else {
-      ring.glowMat.color.setHex(0x3ad9d9);
-      ring.haloMat.opacity = 0.08;
+      ring.glowMat.color.setHex(0x4ae6d8);
+      ring.outerWireMat?.color.setHex(0x8ff7ee);
+      ring.haloMat.opacity = 0.06;
       ring.holder.scale.setScalar(1.0);
     }
   }
