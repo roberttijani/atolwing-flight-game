@@ -196,29 +196,30 @@ function drawArtificialHorizon(ctx, cx, cy, flightState) {
 function drawIlsNeedles(ctx, width, cx, cy, ils) {
   if (!ils?.active) return;
 
-  // Bilateral F/A-18 / Boeing HUD ergonomics: Localizer cleanly under Heading Tape, Glideslope beside Altitude Tape
-  const locY = 104;
-  const gsX = width - 148;
+  // Boxless transparent combiner-glass ILS Localizer (under heading box) & Glideslope (inner edge of ALT tape)
+  const locY = 96;
+  const gsX = width - 134;
 
-  // Smoked-slate Localizer horizontal scale (clear of aircraft & target ring)
-  drawBevelPanel(ctx, cx - 88, locY - 10, 176, 20, 'rgba(255, 122, 229, 0.58)', 'rgba(7, 15, 23, 0.88)');
-  drawBevelPanel(ctx, cx - 50, locY + 12, 100, 16, 'rgba(255, 122, 229, 0.50)', 'rgba(7, 15, 23, 0.90)');
-  ctx.fillStyle = ils.aligned ? PHOSPHOR : '#ff8ae9';
-  ctx.font = 'bold 10px Consolas, monospace';
-  ctx.textAlign = 'center';
-  ctx.fillText(`ILS ${ils.runwayLabel}`, cx, locY + 24);
+  ctx.save();
+  ctx.shadowColor = 'rgba(4, 10, 16, 0.85)';
+  ctx.shadowBlur = 4;
 
-  // Smoked-slate Glideslope vertical scale (mirrors AOA IND cleanly on the right)
-  drawBevelPanel(ctx, gsX - 11, cy - 84, 22, 168, 'rgba(255, 122, 229, 0.58)', 'rgba(7, 15, 23, 0.88)');
-  drawBevelPanel(ctx, gsX - 16, cy - 103, 32, 16, 'rgba(255, 122, 229, 0.50)', 'rgba(7, 15, 23, 0.90)');
-  ctx.fillStyle = '#ff8ae9';
-  ctx.fillText('G/S', gsX, cy - 91);
+  // Delicate Localizer baseline + 4 crisp dots + amber center datum
+  ctx.strokeStyle = 'rgba(238, 245, 249, 0.42)';
+  ctx.lineWidth = 1.0;
+  ctx.beginPath();
+  ctx.moveTo(cx - 72, locY);
+  ctx.lineTo(cx + 72, locY);
+  ctx.moveTo(gsX, cy - 68);
+  ctx.lineTo(gsX, cy + 68);
+  ctx.stroke();
 
   ctx.strokeStyle = CRISP_WHITE;
   ctx.lineWidth = 1.4;
   for (let d = -2; d <= 2; d += 1) {
     if (d === 0) {
       ctx.strokeStyle = AMBER;
+      ctx.lineWidth = 2.0;
       ctx.beginPath();
       ctx.moveTo(cx, locY - 6);
       ctx.lineTo(cx, locY + 6);
@@ -226,86 +227,104 @@ function drawIlsNeedles(ctx, width, cx, cy, ils) {
       ctx.lineTo(gsX + 6, cy);
       ctx.stroke();
       ctx.strokeStyle = CRISP_WHITE;
+      ctx.lineWidth = 1.4;
     } else {
       ctx.beginPath();
-      ctx.arc(cx + d * 32, locY, 2.8, 0, Math.PI * 2);
+      ctx.arc(cx + d * 30, locY, 2.5, 0, Math.PI * 2);
       ctx.stroke();
       ctx.beginPath();
-      ctx.arc(gsX, cy + d * 32, 2.8, 0, Math.PI * 2);
+      ctx.arc(gsX, cy + d * 30, 2.5, 0, Math.PI * 2);
       ctx.stroke();
     }
   }
 
+  // Subtle boxless glass captions with crisp dark outline for contrast over sunlit clouds/buildings
+  ctx.font = 'bold 10px Consolas, monospace';
+  ctx.textAlign = 'center';
+  ctx.strokeStyle = 'rgba(5, 11, 18, 0.88)';
+  ctx.lineWidth = 3.0;
+  ctx.lineJoin = 'round';
+  ctx.strokeText(`ILS ${ils.runwayLabel}`, cx, locY + 15);
+  ctx.fillStyle = ils.aligned ? PHOSPHOR : '#ff8ae9';
+  ctx.fillText(`ILS ${ils.runwayLabel}`, cx, locY + 15);
+  ctx.strokeText('G/S', gsX, cy - 75);
+  ctx.fillStyle = '#ff8ae9';
+  ctx.fillText('G/S', gsX, cy - 75);
+
   const drawDiamond = (dx, dy) => {
     ctx.fillStyle = '#ff6be6';
     ctx.strokeStyle = '#ffffff';
-    ctx.lineWidth = 1.1;
+    ctx.lineWidth = 1.2;
     ctx.beginPath();
-    ctx.moveTo(dx, dy - 6);
-    ctx.lineTo(dx + 6, dy);
-    ctx.lineTo(dx, dy + 6);
-    ctx.lineTo(dx - 6, dy);
+    ctx.moveTo(dx, dy - 5.5);
+    ctx.lineTo(dx + 5.5, dy);
+    ctx.lineTo(dx, dy + 5.5);
+    ctx.lineTo(dx - 5.5, dy);
     ctx.closePath();
     ctx.fill();
     ctx.stroke();
   };
 
-  const locPx = Math.max(-72, Math.min(72, ils.locDots * 32));
-  const gsPx = Math.max(-70, Math.min(70, -ils.gsDots * 32));
+  const locPx = Math.max(-68, Math.min(68, ils.locDots * 30));
+  const gsPx = Math.max(-64, Math.min(64, -ils.gsDots * 30));
   drawDiamond(cx + locPx, locY);
   drawDiamond(gsX, cy + gsPx);
+  ctx.restore();
 }
 
 function drawAoaIndexer(ctx, x, centerY, flightState) {
-  const w = 68;
-  const h = 96;
-  const topY = centerY - h * 0.5;
-  drawBevelPanel(ctx, x, topY, w, h, BORDER_CYAN, 'rgba(7, 15, 23, 0.88)');
-
-  ctx.fillStyle = CRISP_WHITE;
-  ctx.font = 'bold 10px Consolas, monospace';
-  ctx.textAlign = 'center';
-  ctx.fillText('AOA IND', x + w * 0.5, topY + 13);
-
+  // Boxless combiner-glass AoA indexer tucked beside the IAS tape inner edge
+  const bx = x + 16;
+  const topY = centerY - 40;
   const aoa = flightState.alphaDeg ?? 0;
   const isSlow = aoa > 9.5 || flightState.stallWarning;
   const isOnSpeed = !isSlow && aoa >= 3.2 && aoa <= 9.5;
   const isFast = !isSlow && aoa < 3.2;
 
-  const bx = x + w * 0.5;
+  ctx.save();
+  ctx.shadowColor = 'rgba(4, 10, 16, 0.90)';
+  ctx.shadowBlur = 4;
+
   // Top chevron (SLOW / high AoA - amber/red)
-  ctx.strokeStyle = isSlow ? (flightState.stallWarning ? ALERT_RED : AMBER) : 'rgba(255, 159, 46, 0.25)';
-  ctx.lineWidth = 2.6;
+  ctx.strokeStyle = isSlow ? (flightState.stallWarning ? ALERT_RED : AMBER) : 'rgba(255, 159, 46, 0.28)';
+  ctx.lineWidth = 2.4;
   ctx.beginPath();
-  ctx.moveTo(bx - 9, topY + 23);
-  ctx.lineTo(bx, topY + 31);
-  ctx.lineTo(bx + 9, topY + 23);
+  ctx.moveTo(bx - 7, topY + 6);
+  ctx.lineTo(bx, topY + 13);
+  ctx.lineTo(bx + 7, topY + 6);
   ctx.stroke();
 
   // Center donut (ON-SPEED - phosphor green)
-  ctx.strokeStyle = isOnSpeed ? PHOSPHOR : 'rgba(90, 242, 184, 0.25)';
-  ctx.lineWidth = 2.6;
+  ctx.strokeStyle = isOnSpeed ? PHOSPHOR : 'rgba(90, 242, 184, 0.28)';
+  ctx.lineWidth = 2.4;
   ctx.beginPath();
-  ctx.arc(bx, topY + 42, 6.2, 0, Math.PI * 2);
+  ctx.arc(bx, topY + 24, 5.5, 0, Math.PI * 2);
   ctx.stroke();
 
   // Bottom chevron (FAST / low AoA - cyan)
-  ctx.strokeStyle = isFast ? '#58d4ff' : 'rgba(88, 212, 255, 0.25)';
-  ctx.lineWidth = 2.6;
+  ctx.strokeStyle = isFast ? '#58d4ff' : 'rgba(88, 212, 255, 0.28)';
+  ctx.lineWidth = 2.4;
   ctx.beginPath();
-  ctx.moveTo(bx - 9, topY + 60);
-  ctx.lineTo(bx, topY + 52);
-  ctx.lineTo(bx + 9, topY + 60);
+  ctx.moveTo(bx - 7, topY + 41);
+  ctx.lineTo(bx, topY + 34);
+  ctx.lineTo(bx + 7, topY + 41);
   ctx.stroke();
 
+  ctx.textAlign = 'center';
+  ctx.strokeStyle = 'rgba(5, 11, 18, 0.90)';
+  ctx.lineWidth = 3.0;
+  ctx.lineJoin = 'round';
+  ctx.font = 'bold 11px Consolas, monospace';
+  ctx.strokeText(`AoA ${aoa.toFixed(1)}°`, bx + 4, topY + 58);
   ctx.fillStyle = isSlow ? AMBER : isOnSpeed ? PHOSPHOR : CRISP_WHITE;
-  ctx.font = 'bold 12px Consolas, monospace';
-  ctx.fillText(`${aoa.toFixed(1)}°`, bx, topY + 76);
+  ctx.fillText(`AoA ${aoa.toFixed(1)}°`, bx + 4, topY + 58);
 
   const margin = Math.round(flightState.stallMarginKts ?? 35);
-  ctx.fillStyle = margin < 14 ? ALERT_RED : margin < 24 ? AMBER : '#a8c6d8';
   ctx.font = 'bold 10px Consolas, monospace';
-  ctx.fillText(`+${margin} KT`, bx, topY + 90);
+  ctx.strokeText(`+${margin} KT`, bx + 4, topY + 71);
+  ctx.fillStyle = margin < 14 ? ALERT_RED : margin < 24 ? AMBER : '#c8e0ee';
+  ctx.fillText(`+${margin} KT`, bx + 4, topY + 71);
+  ctx.restore();
 }
 
 function drawSpeedTape(ctx, leftX, centerY, flightState) {
@@ -719,8 +738,8 @@ export function drawTacticalMiniRadar(ctx, x, y, size, flightState, missionView,
 
 export function renderTouchdownCard(ctx, width, height, card) {
   if (!card) return;
-  const w = 344;
-  const h = 176;
+  const w = 332;
+  const h = 148;
   const x = width - w - 18;
   const y = height - h - 24;
 
@@ -739,28 +758,28 @@ export function renderTouchdownCard(ctx, width, height, card) {
 
   // Grade pill badge (S / A / B / C)
   const grade = card.grade ?? 'A';
-  drawBevelPanel(ctx, x + w - 74, y + 8, 60, 21, accent, '#0c1d2b');
+  drawBevelPanel(ctx, x + w - 72, y + 8, 58, 21, accent, '#0c1d2b');
   ctx.fillStyle = accent;
   ctx.font = 'bold 11px Consolas, monospace';
   ctx.textAlign = 'center';
-  ctx.fillText(`GRD ${grade}`, x + w - 44, y + 22);
+  ctx.fillText(`GRD ${grade}`, x + w - 43, y + 22);
 
   const aoaTxt = typeof card.touchdownAoaDeg === 'number' ? `${card.touchdownAoaDeg.toFixed(1)}°` : '5.5°';
   const ilsTxt = typeof card.ilsDevDots === 'number' ? `${card.ilsDevDots.toFixed(2)} DOT` : '0.25 DOT';
   const maxGTxt = typeof card.maxG === 'number' ? `${card.maxG.toFixed(1)}G` : '1.4G';
-  const burnTxt = typeof card.fuelBurnedPct === 'number' ? `${card.fuelBurnedPct}% BURN` : '12% BURN';
+  const burnTxt = typeof card.fuelBurnedPct === 'number' ? `-${card.fuelBurnedPct}%` : '-12%';
 
+  // Compact 4-row high-scannability landing & flight recorder card
   const rows = [
-    ['RUNWAY / SINK / IAS', `${card.runwayName.split(' ')[0]} | ${card.sinkRateFpm} FPM | ${card.touchdownKts} KT`],
-    ['TOUCHDOWN AoA / ILS', `AoA ${aoaTxt} | ILS ${ilsTxt}`],
-    ['CENTERLINE / ROLLOUT', `${card.centerlineM} M | ${card.stoppingDistanceM} M (${Math.round(card.stoppingDistanceM * 3.28084)} FT)`],
-    ['FLIGHT RECORDER', `MAX ${maxGTxt} | ${burnTxt}`],
-    ['FUEL REM / AIRFRAME', `${card.fuelRemainingPct}% FUEL | ${100 - card.damagePct}% OK`],
+    ['SINK / IAS / CL', `${card.sinkRateFpm} FPM | ${card.touchdownKts} KT | ${card.centerlineM}M`],
+    ['AoA / ILS DEV', `${aoaTxt} ON-SPD | ${ilsTxt}`],
+    ['ROLLOUT / MAX G', `${card.stoppingDistanceM} M (${Math.round(card.stoppingDistanceM * 3.28084)} FT) | ${maxGTxt}`],
+    ['FUEL / AIRFRAME', `${card.fuelRemainingPct}% (${burnTxt}) | ${100 - card.damagePct}% OK`],
   ];
 
   ctx.font = 'bold 11.5px Consolas, monospace';
   for (let i = 0; i < rows.length; i += 1) {
-    const ry = y + 50 + i * 24;
+    const ry = y + 51 + i * 24;
     ctx.textAlign = 'left';
     ctx.fillStyle = '#a8c2d1';
     ctx.fillText(rows[i][0], x + 14, ry);

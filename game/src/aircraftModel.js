@@ -238,31 +238,32 @@ export function buildCockpitInterior(spec) {
   cockpitGroup.name = 'CockpitInterior3D';
 
   const brushedTex = createBrushedMetalTexture();
-  const tubMat = new THREE.MeshStandardMaterial({ color: 0x0b1117, roughness: 0.9, metalness: 0.08 });
+  const tubMat = new THREE.MeshStandardMaterial({ color: 0x0f1720, roughness: 0.86, metalness: 0.12 });
   const cowlMat = new THREE.MeshStandardMaterial({
-    color: 0x131c26,
-    roughness: 0.72,
-    metalness: 0.24,
+    color: 0x1e2a38,
+    map: brushedTex,
+    roughness: 0.62,
+    metalness: 0.30,
     bumpMap: brushedTex,
-    bumpScale: 0.015,
+    bumpScale: 0.018,
   });
   const frameMat = new THREE.MeshStandardMaterial({
-    color: 0x243342,
+    color: 0x2f4357,
     map: brushedTex,
     bumpMap: brushedTex,
-    bumpScale: 0.02,
-    roughness: 0.46,
-    metalness: 0.56,
+    bumpScale: 0.022,
+    roughness: 0.42,
+    metalness: 0.58,
   });
   const bezelOuterMat = new THREE.MeshStandardMaterial({
-    color: 0x3a4c5e,
+    color: 0x4b6278,
     map: brushedTex,
-    roughness: 0.38,
-    metalness: 0.64,
+    roughness: 0.34,
+    metalness: 0.68,
   });
-  const bezelInnerMat = new THREE.MeshStandardMaterial({ color: 0x141d26, roughness: 0.65, metalness: 0.25 });
-  const trimMat = new THREE.MeshStandardMaterial({ color: 0x3b5066, roughness: 0.42, metalness: 0.52 });
-  const accentMat = new THREE.MeshStandardMaterial({ color: spec.livery.accent, roughness: 0.36, metalness: 0.18 });
+  const bezelInnerMat = new THREE.MeshStandardMaterial({ color: 0x18232e, roughness: 0.62, metalness: 0.28 });
+  const trimMat = new THREE.MeshStandardMaterial({ color: 0x4a627a, roughness: 0.38, metalness: 0.56 });
+  const accentMat = new THREE.MeshStandardMaterial({ color: spec.livery.accent, roughness: 0.34, metalness: 0.20 });
 
   // Fully enclosed lower & side cockpit tub
   const firewall = new THREE.Mesh(new THREE.BoxGeometry(2.4, 1.15, 0.14), tubMat);
@@ -312,9 +313,14 @@ export function buildCockpitInterior(spec) {
     cockpitGroup.add(lamp);
   }
 
-  const cockpitFlood = new THREE.PointLight(0xffd8ab, 1.65, 4.0);
-  cockpitFlood.position.set(0, 1.02, -1.26);
-  cockpitGroup.add(cockpitFlood);
+  // Warm overhead key flood + subtle instrument rim/fill lights so brushed-metal glareshield, bezels & throttles read dimensionally
+  const cockpitFlood = new THREE.PointLight(0xffdcb2, 2.75, 4.8);
+  cockpitFlood.position.set(0, 1.00, -1.20);
+  const cockpitWarmFill = new THREE.PointLight(0xffcba0, 1.55, 3.6);
+  cockpitWarmFill.position.set(-0.46, 0.58, -1.42);
+  const cockpitAvionicsRim = new THREE.PointLight(0x88dcff, 0.95, 3.2);
+  cockpitAvionicsRim.position.set(0.42, 0.46, -1.46);
+  cockpitGroup.add(cockpitFlood, cockpitWarmFill, cockpitAvionicsRim);
 
   // Contoured exterior nose cowling with matte anti-glare strip & crisp panel seam lines
   const noseMat = new THREE.MeshStandardMaterial({

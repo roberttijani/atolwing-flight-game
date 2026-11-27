@@ -256,10 +256,17 @@ function buildPapiBoxRow() {
 }
 
 function buildOffshorePlatformStructure(rwyGroup, spec) {
-  const steelMat = new THREE.MeshStandardMaterial({ color: 0x3b4856, roughness: 0.52, metalness: 0.58 });
-  const yellowSteelMat = new THREE.MeshStandardMaterial({ color: 0xd99b26, roughness: 0.48, metalness: 0.42 });
-  const wireMat = new THREE.MeshStandardMaterial({ color: 0x151a20, roughness: 0.35, metalness: 0.85 });
-  const foulPaintMat = new THREE.MeshBasicMaterial({ color: 0xffc43d });
+  const steelMat = new THREE.MeshStandardMaterial({ color: 0x3b4856, roughness: 0.48, metalness: 0.62 });
+  const yellowSteelMat = new THREE.MeshStandardMaterial({ color: 0xe2a52d, roughness: 0.44, metalness: 0.44 });
+  const wireMat = new THREE.MeshStandardMaterial({
+    color: 0xd8e2ec,
+    emissive: 0x3a4856,
+    emissiveIntensity: 0.65,
+    roughness: 0.28,
+    metalness: 0.85,
+  });
+  const foulPaintMat = new THREE.MeshBasicMaterial({ color: 0xffc845 });
+  const trapZonePaintMat = new THREE.MeshBasicMaterial({ color: 0xffe4a1 });
 
   // Deep structural steel deck box slab underneath the runway top surface
   const deckSlab = new THREE.Mesh(new THREE.BoxGeometry(spec.length + 6, 4.4, spec.width + 6), steelMat);
@@ -277,65 +284,110 @@ function buildOffshorePlatformStructure(rwyGroup, spec) {
     }
   }
 
-  // Angled carrier landing zone foul-lines & 3 steel Arrestor Wires (-76, -52, -28 m)
+  // Angled carrier landing zone foul-lines & high-visibility Arrestor Zone deck brackets
   const angledGroup = new THREE.Group();
-  angledGroup.rotation.y = 0.08;
-  for (let zOff of [-spec.width * 0.32, spec.width * 0.32]) {
-    const foulLine = new THREE.Mesh(new THREE.PlaneGeometry(spec.length * 0.76, 0.85), foulPaintMat);
+  angledGroup.rotation.y = 0.05;
+  for (let zOff of [-spec.width * 0.34, spec.width * 0.34]) {
+    const foulLine = new THREE.Mesh(new THREE.PlaneGeometry(spec.length * 0.80, 1.05), foulPaintMat);
     foulLine.rotation.x = -Math.PI * 0.5;
     foulLine.position.set(0, 0.035, zOff);
     angledGroup.add(foulLine);
   }
   rwyGroup.add(angledGroup);
 
+  // 3 steel Arrestor Wires (-76, -52, -28 m) with gleaming cable sheen, painted trap markers & amber edge lamps
   const wireXs = [-76, -52, -28];
+  const wireLampMat = new THREE.MeshBasicMaterial({ color: 0xffb338 });
   for (let w = 0; w < wireXs.length; w += 1) {
     const wx = wireXs[w];
-    const cable = new THREE.Mesh(new THREE.CylinderGeometry(0.11, 0.11, spec.width - 8, 8), wireMat);
+    const cable = new THREE.Mesh(new THREE.CylinderGeometry(0.19, 0.19, spec.width - 6, 10), wireMat);
     cable.rotation.x = Math.PI * 0.5;
-    cable.position.set(wx, 0.16, 0);
+    cable.position.set(wx, 0.22, 0);
     rwyGroup.add(cable);
+
+    // Subtle high-contrast deck shadow strip right underneath cable so steel wire pops cleanly from air
+    const wireBack = new THREE.Mesh(
+      new THREE.PlaneGeometry(1.15, spec.width - 10),
+      new THREE.MeshBasicMaterial({ color: 0x0b0f14 }),
+    );
+    wireBack.rotation.x = -Math.PI * 0.5;
+    wireBack.position.set(wx, 0.028, 0);
+    rwyGroup.add(wireBack);
+
     for (let zEnd of [-spec.width * 0.44, spec.width * 0.44]) {
-      const sheave = new THREE.Mesh(new THREE.BoxGeometry(1.8, 0.55, 2.2), yellowSteelMat);
-      sheave.position.set(wx, 0.28, zEnd);
-      rwyGroup.add(sheave);
+      const sheave = new THREE.Mesh(new THREE.BoxGeometry(2.2, 0.72, 2.4), yellowSteelMat);
+      sheave.position.set(wx, 0.36, zEnd);
+      const lamp = new THREE.Mesh(new THREE.SphereGeometry(0.45, 8, 8), wireLampMat);
+      lamp.position.set(wx, 0.92, zEnd);
+      const stripe = new THREE.Mesh(new THREE.PlaneGeometry(3.2, 1.2), trapZonePaintMat);
+      stripe.rotation.x = -Math.PI * 0.5;
+      stripe.position.set(wx, 0.04, zEnd * 0.80);
+      rwyGroup.add(sheave, lamp, stripe);
     }
   }
 
-  // Optical Landing System (OLS / Meatball) Fresnel Lens Box on port deck edge
+  // Optical Landing System (OLS / Meatball) Fresnel Lens Box clearly elevated on port deck edge
   const olsGroup = new THREE.Group();
-  olsGroup.position.set(-54, 2.1, -spec.width * 0.5 - 3.6);
-  const olsHousing = new THREE.Mesh(new THREE.BoxGeometry(1.6, 4.4, 2.8), steelMat);
-  const datumMat = new THREE.MeshBasicMaterial({ color: 0x38f27c });
-  const leftDatum = new THREE.Mesh(new THREE.BoxGeometry(0.35, 0.42, 3.8), datumMat);
-  leftDatum.position.set(-0.9, 0, -3.2);
-  const rightDatum = new THREE.Mesh(new THREE.BoxGeometry(0.35, 0.42, 3.8), datumMat);
-  rightDatum.position.set(-0.9, 0, 3.2);
-  const meatballMat = new THREE.MeshBasicMaterial({ color: 0xffb338 });
-  const meatball = new THREE.Mesh(new THREE.SphereGeometry(0.68, 10, 10), meatballMat);
-  meatball.position.set(-0.95, 0, 0);
+  olsGroup.position.set(-54, 4.4, -spec.width * 0.5 - 4.4);
+  const olsHousing = new THREE.Mesh(
+    new THREE.BoxGeometry(2.2, 6.2, 4.2),
+    new THREE.MeshStandardMaterial({ color: 0x10171f, roughness: 0.72 }),
+  );
+  const datumMat = new THREE.MeshBasicMaterial({ color: 0x3cff88 });
+  const leftDatum = new THREE.Mesh(new THREE.BoxGeometry(0.5, 0.78, 5.6), datumMat);
+  leftDatum.position.set(-1.25, 0, -4.9);
+  const rightDatum = new THREE.Mesh(new THREE.BoxGeometry(0.5, 0.78, 5.6), datumMat);
+  rightDatum.position.set(-1.25, 0, 4.9);
+  const meatballMat = new THREE.MeshBasicMaterial({ color: 0xffc238 });
+  const meatball = new THREE.Mesh(new THREE.SphereGeometry(1.18, 12, 12), meatballMat);
+  meatball.position.set(-1.38, 0, 0);
   olsGroup.add(olsHousing, leftDatum, rightDatum, meatball);
   rwyGroup.add(olsGroup);
 
-  // Deck-edge beacon lights (amber/blue maritime deck lighting)
+  // Lit twilight deck centerline LEDs, green threshold bar & alternating amber/blue perimeter beacons
+  const centerLedMat = new THREE.MeshBasicMaterial({ color: 0xffe6a3 });
+  for (let x = -spec.length * 0.5 + 14; x <= spec.length * 0.5 - 14; x += 18) {
+    const cl = new THREE.Mesh(new THREE.SphereGeometry(0.38, 6, 6), centerLedMat);
+    cl.position.set(x, 0.22, 0);
+    rwyGroup.add(cl);
+  }
+  const greenBarMat = new THREE.MeshBasicMaterial({ color: 0x36f57f });
+  for (let zBar = -spec.width * 0.42; zBar <= spec.width * 0.42; zBar += 4.2) {
+    const g1 = new THREE.Mesh(new THREE.SphereGeometry(0.52, 8, 8), greenBarMat);
+    g1.position.set(-spec.length * 0.5 + 2.5, 0.48, zBar);
+    rwyGroup.add(g1);
+  }
   const blueMat = new THREE.MeshBasicMaterial({ color: 0x45c8ff });
-  for (let x = -spec.length * 0.5; x <= spec.length * 0.5 + 1; x += 26) {
+  const amberEdgeMat = new THREE.MeshBasicMaterial({ color: 0xffa638 });
+  let edgeIdx = 0;
+  for (let x = -spec.length * 0.5; x <= spec.length * 0.5 + 1; x += 18) {
+    edgeIdx += 1;
     for (let zSide of [-spec.width * 0.5 - 1.2, spec.width * 0.5 + 1.2]) {
-      const b = new THREE.Mesh(new THREE.SphereGeometry(0.46, 6, 6), blueMat);
-      b.position.set(x, 0.45, zSide);
+      const b = new THREE.Mesh(
+        new THREE.SphereGeometry(0.52, 8, 8),
+        edgeIdx % 2 === 0 ? blueMat : amberEdgeMat,
+      );
+      b.position.set(x, 0.52, zSide);
       rwyGroup.add(b);
     }
   }
 
-  // Platform operations island & comms tower on north flank
-  const opsCab = new THREE.Mesh(new THREE.BoxGeometry(26, 12, 14), steelMat);
-  opsCab.position.set(22, 6, -spec.width * 0.5 - 7);
+  // Platform operations island, lit dusk control bridge, mast & warm deck floodlight over arrestor zone
+  const opsCab = new THREE.Mesh(new THREE.BoxGeometry(28, 13, 15), steelMat);
+  opsCab.position.set(22, 6.5, -spec.width * 0.5 - 8);
   opsCab.castShadow = true;
+  const bridgeGlass = new THREE.Mesh(
+    new THREE.BoxGeometry(22, 3.2, 15.6),
+    new THREE.MeshBasicMaterial({ color: 0x7ef2d4 }),
+  );
+  bridgeGlass.position.set(22, 10.4, -spec.width * 0.5 - 8);
   const mast = new THREE.Mesh(new THREE.CylinderGeometry(0.45, 0.85, 22, 8), yellowSteelMat);
-  mast.position.set(28, 22, -spec.width * 0.5 - 7);
-  const beacon = new THREE.Mesh(new THREE.SphereGeometry(0.85, 8, 8), new THREE.MeshBasicMaterial({ color: 0xff3b30 }));
-  beacon.position.set(28, 33.5, -spec.width * 0.5 - 7);
-  rwyGroup.add(opsCab, mast, beacon);
+  mast.position.set(28, 22, -spec.width * 0.5 - 8);
+  const beacon = new THREE.Mesh(new THREE.SphereGeometry(0.95, 8, 8), new THREE.MeshBasicMaterial({ color: 0xff3b30 }));
+  beacon.position.set(28, 33.5, -spec.width * 0.5 - 8);
+  const deckFlood = new THREE.PointLight(0xffc278, 5.5, 120, 1.3);
+  deckFlood.position.set(-48, 16, -24);
+  rwyGroup.add(opsCab, bridgeGlass, mast, beacon, deckFlood);
 
   return { meatball, meatballMat };
 }

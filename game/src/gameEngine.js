@@ -71,15 +71,16 @@ export function stageShowcaseScene(shotName, ctx) {
   } = ctx;
 
   if (shotName === 'cover') {
+    // Dynamic 3/4 rear-port-upper hero approach revealing ATW-28 PBR livery, twin props, glowing gate & WARA RWY 09
     selectAircraft('islander', false);
     setMission(0, false);
     resetAircraftAtSpawn(flightState, {
-      x: -2290,
-      y: 46,
-      z: 234,
-      headingDeg: 86.0,
-      pitchDeg: 2.0,
-      rollDeg: -11,
+      x: -2285,
+      y: 47,
+      z: 244,
+      headingDeg: 84.5,
+      pitchDeg: 2.2,
+      rollDeg: 11.5,
       airspeedKts: 94,
       throttle: 0.68,
       flapIndex: 1,
@@ -88,12 +89,12 @@ export function stageShowcaseScene(shotName, ctx) {
       onGround: false,
     });
     if (aids.ringInstances[0]) {
-      aids.ringInstances[0].holder.position.set(-2015, 62, 194);
+      aids.ringInstances[0].holder.position.set(-1995, 58, 204);
       aids.ringInstances[0].holder.scale.setScalar(0.84);
     }
     toggleCameraMode(cameraRig, 'chase');
-    cameraRig.orbitYaw = 0.22;
-    cameraRig.orbitPitch = 0.14;
+    cameraRig.orbitYaw = -0.44;
+    cameraRig.orbitPitch = 0.22;
     snapCameraRig(cameraRig, flightState);
     flightState.gLoad = 1.1;
     flightState.verticalSpeedFpm = -320;
@@ -133,66 +134,57 @@ export function stageShowcaseScene(shotName, ctx) {
     flightState.stallMarginKts = 55;
     computeIlsGuidance(flightState, 'WAKB');
   } else if (shotName === 'action') {
-    // Showcase agile VX-9 Peregrine Recon banking hard through tropical squall over South Cove LZ
+    // Iconic Offshore Carrier Deck (WAPO) Dusk Trap Approach with VX-9 Peregrine, deployed tailhook, 3 arrestor wires & lit OLS Meatball
     selectAircraft('peregrine', false);
-    setMission(2, false);
-    applyMissionWeather(weather, scene, 'storm');
+    setMission(5, false); // Sortie 06: Offshore Platform Approach (WAPO)
+    applyMissionWeather(weather, scene, 'dusk');
     syncOceanWithWeather(worldRefs, weather);
+    for (let r = 0; r < aids.ringInstances.length; r += 1) {
+      aids.ringInstances[r].captured = true;
+      aids.ringInstances[r].holder.visible = false;
+    }
+    ctx.missionState.ringsCaptured = ctx.missionState.totalRings;
+    ctx.missionState.activeRingIndex = ctx.missionState.totalRings;
+
     resetAircraftAtSpawn(flightState, {
-      x: 358,
-      y: 132,
-      z: 1236,
-      headingDeg: 222,
-      pitchDeg: 2.2,
-      rollDeg: 36,
-      airspeedKts: 118,
-      throttle: 0.79,
-      flapIndex: 1,
-      fuelPct: 58,
-      sinkMps: -3.95,
+      x: -1104,
+      y: 34.8,
+      z: -1077,
+      headingDeg: 90.0,
+      pitchDeg: 4.8,
+      rollDeg: -6.5,
+      airspeedKts: 84,
+      throttle: 0.56,
+      flapIndex: 2,
+      fuelPct: 48,
+      sinkMps: -1.75,
+      tailhookDeployed: true,
       onGround: false,
     });
-    flightState.gLoad = 2.4;
-    flightState.groundSpeedKts = 109;
-    flightState.verticalSpeedFpm = -780;
-    flightState.alphaDeg = 8.6;
-    flightState.egtC = 738;
-    flightState.stallMarginKts = 56;
-    flightState.controlRoll = 0.28;
-    flightState.controlPitch = 0.20;
+    flightState.gLoad = 1.2;
+    flightState.groundSpeedKts = 76;
+    flightState.verticalSpeedFpm = -340;
+    flightState.alphaDeg = 7.4;
+    flightState.egtC = 648;
+    flightState.stallMarginKts = 28;
+    flightState.controlRoll = -0.10;
+    flightState.controlPitch = 0.16;
     flightState.stallWarning = false;
     flightState.terrainPullUp = false;
-    computeIlsGuidance(flightState, 'WARA');
+    computeIlsGuidance(flightState, 'WAPO');
 
-    if (aids.ringInstances[0]) {
-      aids.ringInstances[0].holder.position.set(132, 118, 1418);
-      aids.ringInstances[0].holder.rotation.y = -(224 * Math.PI) / 180;
+    if (ctx.aircraft.tailhookPivot) {
+      ctx.aircraft.tailhookPivot.rotation.x = 0.68;
     }
-    spawnAirdropCanister(particles, new THREE.Vector3(286, 88, 1328));
 
-    const wt = flightState.aircraftSpec.wingtipOffset;
     particles.leftTrailPts = [];
     particles.rightTrailPts = [];
-    const q = new THREE.Quaternion();
-    for (let s = 18; s >= 0; s -= 1) {
-      const tBack = s * 0.024;
-      const hdgS = 222 - s * 0.65;
-      const hRad = (hdgS * Math.PI) / 180;
-      setQuaternionFromAttitude(q, hdgS, 2.2, 36);
-      const posS = new THREE.Vector3(
-        flightState.position.x - Math.sin(hRad) * 54 * tBack,
-        flightState.position.y + 3.4 * tBack,
-        flightState.position.z + Math.cos(hRad) * 54 * tBack,
-      );
-      particles.leftTrailPts.push(new THREE.Vector3(-wt.x, wt.y, wt.z).applyQuaternion(q).add(posS));
-      particles.rightTrailPts.push(new THREE.Vector3(wt.x, wt.y, wt.z).applyQuaternion(q).add(posS));
-    }
-    particles.leftTrailGeo.setFromPoints(particles.leftTrailPts);
-    particles.rightTrailGeo.setFromPoints(particles.rightTrailPts);
+    particles.leftTrailGeo.setFromPoints([]);
+    particles.rightTrailGeo.setFromPoints([]);
 
     toggleCameraMode(cameraRig, 'chase');
-    cameraRig.orbitYaw = -0.14;
-    cameraRig.orbitPitch = 0.08;
+    cameraRig.orbitYaw = 0.24;
+    cameraRig.orbitPitch = 0.17;
     snapCameraRig(cameraRig, flightState);
   } else if (shotName === 'touchdown') {
     selectAircraft('islander', false);
