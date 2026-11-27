@@ -14,6 +14,7 @@ import {
 } from './weatherSystem.js';
 import {
   applyAircraftProfile,
+  computeIlsGuidance,
   createFlightState,
   resetAircraftAtSpawn,
   setQuaternionFromAttitude,
@@ -36,6 +37,7 @@ import {
   clearParticles,
   createParticleSystem,
   spawnAirdropCanister,
+  spawnArrestorSparks,
   spawnCrashExplosion,
   spawnTireSmoke,
   updateParticles,
@@ -73,11 +75,11 @@ export function stageShowcaseScene(shotName, ctx) {
     setMission(0, false);
     resetAircraftAtSpawn(flightState, {
       x: -2290,
-      y: 50,
-      z: 242,
-      headingDeg: 85.0,
+      y: 46,
+      z: 234,
+      headingDeg: 86.0,
       pitchDeg: 2.0,
-      rollDeg: -12,
+      rollDeg: -11,
       airspeedKts: 94,
       throttle: 0.68,
       flapIndex: 1,
@@ -95,6 +97,10 @@ export function stageShowcaseScene(shotName, ctx) {
     snapCameraRig(cameraRig, flightState);
     flightState.gLoad = 1.1;
     flightState.verticalSpeedFpm = -320;
+    flightState.alphaDeg = 5.4;
+    flightState.egtC = 672;
+    flightState.stallMarginKts = 48;
+    computeIlsGuidance(flightState, 'WARA');
   } else if (shotName === 'cockpit') {
     selectAircraft('islander', false);
     setMission(4, false); // Sortie 05: Volcanic Thermal Rescue facing smoking Mount Bara caldera & golden ocean
@@ -122,6 +128,10 @@ export function stageShowcaseScene(shotName, ctx) {
     flightState.controlRoll = -0.14;
     flightState.gLoad = 1.1;
     flightState.verticalSpeedFpm = 180;
+    flightState.alphaDeg = 4.2;
+    flightState.egtC = 684;
+    flightState.stallMarginKts = 55;
+    computeIlsGuidance(flightState, 'WAKB');
   } else if (shotName === 'action') {
     // Showcase agile VX-9 Peregrine Recon banking hard through tropical squall over South Cove LZ
     selectAircraft('peregrine', false);
@@ -145,10 +155,14 @@ export function stageShowcaseScene(shotName, ctx) {
     flightState.gLoad = 2.4;
     flightState.groundSpeedKts = 109;
     flightState.verticalSpeedFpm = -780;
+    flightState.alphaDeg = 8.6;
+    flightState.egtC = 738;
+    flightState.stallMarginKts = 56;
     flightState.controlRoll = 0.28;
     flightState.controlPitch = 0.20;
     flightState.stallWarning = false;
     flightState.terrainPullUp = false;
+    computeIlsGuidance(flightState, 'WARA');
 
     if (aids.ringInstances[0]) {
       aids.ringInstances[0].holder.position.set(132, 118, 1418);
@@ -207,13 +221,23 @@ export function stageShowcaseScene(shotName, ctx) {
       onGround: true,
     });
     setQuaternionFromAttitude(flightState.quaternion, 90, 4.0, 0);
+    flightState.alphaDeg = 5.8;
+    flightState.egtC = 518;
+    flightState.stallMarginKts = 20;
     flightState.touchdownActive = true;
     flightState.rolloutDistanceM = 168;
+    computeIlsGuidance(flightState, 'WARA');
     flightState.lastLandingCard = {
       rating: 'SMOOTH STOL TOUCHDOWN',
+      grade: 'S',
+      wireNumber: 0,
       runwayName: 'WARA RWY 09/27',
       sinkRateFpm: -142,
       touchdownKts: 66,
+      touchdownAoaDeg: 5.8,
+      ilsDevDots: 0.22,
+      maxG: 1.4,
+      fuelBurnedPct: 13,
       centerlineM: 1.0,
       stoppingDistanceM: 168,
       fuelRemainingPct: 71,
@@ -308,6 +332,7 @@ export function bootFlightGame() {
   const updateToolbarLabels = () => {
     const camBtn = document.getElementById('btn-camera');
     const flapBtn = document.getElementById('btn-flaps');
+    const hookBtn = document.getElementById('btn-hook');
     const brakeBtn = document.getElementById('btn-brakes');
     const muteBtn = document.getElementById('btn-mute');
     const pauseBtn = document.getElementById('btn-pause');
@@ -326,6 +351,10 @@ export function bootFlightGame() {
     if (flapBtn) {
       const deg = [0, 15, 35][flightState.flapIndex] ?? 0;
       flapBtn.textContent = `Flaps: ${deg} deg [F]`;
+    }
+    if (hookBtn) {
+      hookBtn.textContent = `Hook: ${flightState.tailhookDeployed ? 'DN' : 'UP'} [H]`;
+      hookBtn.setAttribute('aria-pressed', String(Boolean(flightState.tailhookDeployed)));
     }
     if (brakeBtn) {
       brakeBtn.textContent = `Brakes: ${flightState.brakes || input.pending.brakeLatch ? 'ON' : 'OFF'} [B]`;
@@ -407,6 +436,10 @@ export function bootFlightGame() {
     document.getElementById('crash-sink').textContent = `${report.sinkRateFpm} FPM`;
     document.getElementById('crash-attitude').textContent = `Pitch ${report.pitchDeg} deg / Roll ${report.rollDeg} deg`;
     document.getElementById('crash-fuel').textContent = `${report.fuelPct}%`;
+    const recEl = document.getElementById('crash-recorder');
+    if (recEl) recEl.textContent = `${report.maxG ?? 1.0}G / +${report.minStallMarginKts ?? 0} KT`;
+    const aoaEl = document.getElementById('crash-aoa');
+    if (aoaEl) aoaEl.textContent = `${report.aoaDeg ?? 0} deg / ${report.fuelBurnedPct ?? 0}% burned`;
     crashDialog.hidden = false;
     document.getElementById('btn-crash-retry')?.focus();
     if (srStatus) srStatus.textContent = `Crash recorded: ${report.cause}. Press R to refly sortie.`;
@@ -416,11 +449,15 @@ export function bootFlightGame() {
     sortieLog.push(summary);
     renderLogbookDom();
     if (!completeDialog) return;
-    document.getElementById('complete-rank').textContent = `${summary.rank} - ${summary.totalScore} PTS`;
+    document.getElementById('complete-rank').textContent = `${summary.rank} (GRADE ${summary.grade ?? 'A'}) - ${summary.totalScore} PTS`;
     document.getElementById('complete-rating').textContent = summary.landingRating;
     document.getElementById('complete-sink').textContent = `${summary.sinkRateFpm} FPM`;
     document.getElementById('complete-stop').textContent = `${summary.stoppingDistanceM} m (${Math.round(summary.stoppingDistanceM * 3.28084)} ft)`;
     document.getElementById('complete-fuel').textContent = `${summary.fuelRemainingPct}% remaining`;
+    const ilsEl = document.getElementById('complete-ils');
+    if (ilsEl) ilsEl.textContent = `${summary.touchdownAoaDeg ?? 0} deg / ${summary.ilsDevDots ?? 0} DOT`;
+    const recEl = document.getElementById('complete-recorder');
+    if (recEl) recEl.textContent = `Grade ${summary.grade ?? 'A'} | Max ${summary.maxG ?? 1.0}G | ${summary.fuelBurnedPct ?? 0}% burn`;
     completeDialog.hidden = false;
     document.getElementById('btn-next-sortie')?.focus();
     if (srStatus) srStatus.textContent = `Sortie complete: ${summary.rank}, score ${summary.totalScore}.`;
@@ -492,6 +529,12 @@ export function bootFlightGame() {
   document.getElementById('btn-flaps')?.addEventListener('click', () => {
     audio.initAudio();
     flightState.flapIndex = (flightState.flapIndex + 1) % 3;
+    updateToolbarLabels();
+  });
+
+  document.getElementById('btn-hook')?.addEventListener('click', () => {
+    audio.initAudio();
+    flightState.tailhookDeployed = !flightState.tailhookDeployed;
     updateToolbarLabels();
   });
 
@@ -600,6 +643,11 @@ export function bootFlightGame() {
       toggleCameraMode(cameraRig);
       updateToolbarLabels();
     }
+    if (controls.toggleTailhook) {
+      flightState.tailhookDeployed = !flightState.tailhookDeployed;
+      controls.toggleTailhook = false;
+      updateToolbarLabels();
+    }
     if (controls.toggleMute) {
       audio.toggleMute();
       updateToolbarLabels();
@@ -622,11 +670,17 @@ export function bootFlightGame() {
         const windVec = sampleWindAtPosition(weather, flightState.position, elapsedSec);
         const wasCrashed = flightState.crashed;
 
-        stepFlightPhysics(flightState, controls, windVec, FIXED_DT);
+        stepFlightPhysics(flightState, controls, windVec, FIXED_DT, missionState.mission.targetRunwayId);
         controls.flapStep = false;
+        controls.toggleTailhook = false;
 
         if (flightState.justTouchedDown) {
           spawnTireSmoke(particles, flightState.position, flightState.quaternion, 8);
+          audio.playTouchdownScreech();
+        }
+        if (flightState.justArrestedWire > 0) {
+          spawnArrestorSparks(particles, flightState.position, flightState.quaternion);
+          spawnTireSmoke(particles, flightState.position, flightState.quaternion, 10);
           audio.playTouchdownScreech();
         }
 

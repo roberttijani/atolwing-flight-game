@@ -193,6 +193,121 @@ function drawArtificialHorizon(ctx, cx, cy, flightState) {
   ctx.stroke();
 }
 
+function drawIlsNeedles(ctx, width, cx, cy, ils) {
+  if (!ils?.active) return;
+
+  // Bilateral F/A-18 / Boeing HUD ergonomics: Localizer cleanly under Heading Tape, Glideslope beside Altitude Tape
+  const locY = 104;
+  const gsX = width - 148;
+
+  // Smoked-slate Localizer horizontal scale (clear of aircraft & target ring)
+  drawBevelPanel(ctx, cx - 88, locY - 10, 176, 20, 'rgba(255, 122, 229, 0.58)', 'rgba(7, 15, 23, 0.88)');
+  drawBevelPanel(ctx, cx - 50, locY + 12, 100, 16, 'rgba(255, 122, 229, 0.50)', 'rgba(7, 15, 23, 0.90)');
+  ctx.fillStyle = ils.aligned ? PHOSPHOR : '#ff8ae9';
+  ctx.font = 'bold 10px Consolas, monospace';
+  ctx.textAlign = 'center';
+  ctx.fillText(`ILS ${ils.runwayLabel}`, cx, locY + 24);
+
+  // Smoked-slate Glideslope vertical scale (mirrors AOA IND cleanly on the right)
+  drawBevelPanel(ctx, gsX - 11, cy - 84, 22, 168, 'rgba(255, 122, 229, 0.58)', 'rgba(7, 15, 23, 0.88)');
+  drawBevelPanel(ctx, gsX - 16, cy - 103, 32, 16, 'rgba(255, 122, 229, 0.50)', 'rgba(7, 15, 23, 0.90)');
+  ctx.fillStyle = '#ff8ae9';
+  ctx.fillText('G/S', gsX, cy - 91);
+
+  ctx.strokeStyle = CRISP_WHITE;
+  ctx.lineWidth = 1.4;
+  for (let d = -2; d <= 2; d += 1) {
+    if (d === 0) {
+      ctx.strokeStyle = AMBER;
+      ctx.beginPath();
+      ctx.moveTo(cx, locY - 6);
+      ctx.lineTo(cx, locY + 6);
+      ctx.moveTo(gsX - 6, cy);
+      ctx.lineTo(gsX + 6, cy);
+      ctx.stroke();
+      ctx.strokeStyle = CRISP_WHITE;
+    } else {
+      ctx.beginPath();
+      ctx.arc(cx + d * 32, locY, 2.8, 0, Math.PI * 2);
+      ctx.stroke();
+      ctx.beginPath();
+      ctx.arc(gsX, cy + d * 32, 2.8, 0, Math.PI * 2);
+      ctx.stroke();
+    }
+  }
+
+  const drawDiamond = (dx, dy) => {
+    ctx.fillStyle = '#ff6be6';
+    ctx.strokeStyle = '#ffffff';
+    ctx.lineWidth = 1.1;
+    ctx.beginPath();
+    ctx.moveTo(dx, dy - 6);
+    ctx.lineTo(dx + 6, dy);
+    ctx.lineTo(dx, dy + 6);
+    ctx.lineTo(dx - 6, dy);
+    ctx.closePath();
+    ctx.fill();
+    ctx.stroke();
+  };
+
+  const locPx = Math.max(-72, Math.min(72, ils.locDots * 32));
+  const gsPx = Math.max(-70, Math.min(70, -ils.gsDots * 32));
+  drawDiamond(cx + locPx, locY);
+  drawDiamond(gsX, cy + gsPx);
+}
+
+function drawAoaIndexer(ctx, x, centerY, flightState) {
+  const w = 68;
+  const h = 96;
+  const topY = centerY - h * 0.5;
+  drawBevelPanel(ctx, x, topY, w, h, BORDER_CYAN, 'rgba(7, 15, 23, 0.88)');
+
+  ctx.fillStyle = CRISP_WHITE;
+  ctx.font = 'bold 10px Consolas, monospace';
+  ctx.textAlign = 'center';
+  ctx.fillText('AOA IND', x + w * 0.5, topY + 13);
+
+  const aoa = flightState.alphaDeg ?? 0;
+  const isSlow = aoa > 9.5 || flightState.stallWarning;
+  const isOnSpeed = !isSlow && aoa >= 3.2 && aoa <= 9.5;
+  const isFast = !isSlow && aoa < 3.2;
+
+  const bx = x + w * 0.5;
+  // Top chevron (SLOW / high AoA - amber/red)
+  ctx.strokeStyle = isSlow ? (flightState.stallWarning ? ALERT_RED : AMBER) : 'rgba(255, 159, 46, 0.25)';
+  ctx.lineWidth = 2.6;
+  ctx.beginPath();
+  ctx.moveTo(bx - 9, topY + 23);
+  ctx.lineTo(bx, topY + 31);
+  ctx.lineTo(bx + 9, topY + 23);
+  ctx.stroke();
+
+  // Center donut (ON-SPEED - phosphor green)
+  ctx.strokeStyle = isOnSpeed ? PHOSPHOR : 'rgba(90, 242, 184, 0.25)';
+  ctx.lineWidth = 2.6;
+  ctx.beginPath();
+  ctx.arc(bx, topY + 42, 6.2, 0, Math.PI * 2);
+  ctx.stroke();
+
+  // Bottom chevron (FAST / low AoA - cyan)
+  ctx.strokeStyle = isFast ? '#58d4ff' : 'rgba(88, 212, 255, 0.25)';
+  ctx.lineWidth = 2.6;
+  ctx.beginPath();
+  ctx.moveTo(bx - 9, topY + 60);
+  ctx.lineTo(bx, topY + 52);
+  ctx.lineTo(bx + 9, topY + 60);
+  ctx.stroke();
+
+  ctx.fillStyle = isSlow ? AMBER : isOnSpeed ? PHOSPHOR : CRISP_WHITE;
+  ctx.font = 'bold 12px Consolas, monospace';
+  ctx.fillText(`${aoa.toFixed(1)}°`, bx, topY + 76);
+
+  const margin = Math.round(flightState.stallMarginKts ?? 35);
+  ctx.fillStyle = margin < 14 ? ALERT_RED : margin < 24 ? AMBER : '#a8c6d8';
+  ctx.font = 'bold 10px Consolas, monospace';
+  ctx.fillText(`+${margin} KT`, bx, topY + 90);
+}
+
 function drawSpeedTape(ctx, leftX, centerY, flightState) {
   const w = 96;
   const h = 236;
@@ -253,12 +368,14 @@ function drawSpeedTape(ctx, leftX, centerY, flightState) {
   ctx.textAlign = 'center';
   ctx.fillText(`${Math.round(kts)}`, leftX + (w - 8) * 0.5, centerY + 7);
 
+  // High-contrast smoked-slate telemetry pill (>10:1 contrast even over bright surf foam)
+  drawBevelPanel(ctx, leftX, topY + h + 5, w, 22, BORDER_CYAN, 'rgba(7, 15, 23, 0.90)');
   ctx.fillStyle = Math.abs(flightState.gLoad) > 3.6 ? AMBER : CRISP_WHITE;
-  ctx.font = 'bold 12px Consolas, monospace';
+  ctx.font = 'bold 11px Consolas, monospace';
   ctx.textAlign = 'left';
-  ctx.fillText(`G ${flightState.gLoad.toFixed(1)}`, leftX + 6, topY + h + 17);
+  ctx.fillText(`G ${flightState.gLoad.toFixed(1)}`, leftX + 6, topY + h + 20);
   ctx.textAlign = 'right';
-  ctx.fillText(`GS ${Math.round(flightState.groundSpeedKts)}`, leftX + w, topY + h + 17);
+  ctx.fillText(`GS ${Math.round(flightState.groundSpeedKts)}`, leftX + w - 6, topY + h + 20);
 }
 
 function drawAltitudeTape(ctx, rightX, centerY, flightState) {
@@ -309,12 +426,14 @@ function drawAltitudeTape(ctx, rightX, centerY, flightState) {
 
   const vsi = Math.round(flightState.verticalSpeedFpm / 10) * 10;
   const vsiSign = vsi > 0 ? `+${vsi}` : `${vsi}`;
+  // High-contrast smoked-slate pill behind VS & RAD readouts (>10:1 over bright coastal surf)
+  drawBevelPanel(ctx, leftX - 4, topY + h + 5, w + 4, 38, BORDER_CYAN, 'rgba(7, 15, 23, 0.90)');
   ctx.fillStyle = vsi < -700 ? ALERT_RED : CRISP_WHITE;
-  ctx.font = 'bold 12px Consolas, monospace';
+  ctx.font = 'bold 11px Consolas, monospace';
   ctx.textAlign = 'right';
-  ctx.fillText(`VS ${vsiSign} FPM`, rightX, topY + h + 17);
+  ctx.fillText(`VS ${vsiSign} FPM`, rightX - 6, topY + h + 20);
   ctx.fillStyle = flightState.radarAltFt < 150 && !flightState.onGround ? AMBER : PHOSPHOR;
-  ctx.fillText(`RAD ${Math.round(flightState.radarAltFt)} FT`, rightX, topY + h + 33);
+  ctx.fillText(`RAD ${Math.round(flightState.radarAltFt)} FT`, rightX - 6, topY + h + 36);
 }
 
 function drawWindAndSystems(ctx, width, height, flightState, weather, cameraMode) {
@@ -354,9 +473,9 @@ function drawWindAndSystems(ctx, width, height, flightState, weather, cameraMode
   ctx.font = '11px Bahnschrift, "Segoe UI", sans-serif';
   ctx.fillText(weather.preset.label, 76, 58);
 
-  const sysY = cameraMode === 'cockpit' ? height - 150 : height - 154;
-  const sysW = cameraMode === 'cockpit' ? 212 : 252;
-  const sysH = 134;
+  const sysY = cameraMode === 'cockpit' ? height - 166 : height - 170;
+  const sysW = cameraMode === 'cockpit' ? 216 : 258;
+  const sysH = 152;
   drawBevelPanel(ctx, 16, sysY, sysW, sysH);
 
   const drawBar = (label, valueText, ratio, yOff, barColor, sweetSpot = false) => {
@@ -368,49 +487,56 @@ function drawWindAndSystems(ctx, width, height, flightState, weather, cameraMode
     ctx.fillText(valueText, 16 + sysW - 9, sysY + yOff);
 
     const bx = 25;
-    const by = sysY + yOff + 5;
+    const by = sysY + yOff + 4;
     const bw = sysW - 18;
     ctx.fillStyle = '#162636';
-    ctx.fillRect(bx, by, bw, 8);
+    ctx.fillRect(bx, by, bw, 7);
     if (sweetSpot) {
       ctx.fillStyle = 'rgba(90, 242, 184, 0.25)';
-      ctx.fillRect(bx + bw * 0.58, by - 1, bw * 0.18, 10);
+      ctx.fillRect(bx + bw * 0.58, by - 1, bw * 0.18, 9);
     }
     ctx.fillStyle = barColor;
-    ctx.fillRect(bx, by, bw * Math.max(0, Math.min(1, ratio)), 8);
+    ctx.fillRect(bx, by, bw * Math.max(0, Math.min(1, ratio)), 7);
   };
 
   const thrColor = flightState.throttle > 0.85 ? AMBER : PHOSPHOR;
-  drawBar('THROTTLE', `${Math.round(flightState.throttle * 100)}%`, flightState.throttle, 19, thrColor, true);
+  drawBar('THROTTLE', `${Math.round(flightState.throttle * 100)}%`, flightState.throttle, 18, thrColor, true);
 
   const fuelColor = flightState.fuelPct < 20 ? ALERT_RED : PHOSPHOR;
   drawBar(
     'FUEL',
     `${Math.round(flightState.fuelPct)}% (${flightState.fuelFlowKgH} KG/H)`,
     flightState.fuelPct / 100,
-    50,
+    45,
     fuelColor,
   );
+
+  const egtVal = Math.round(flightState.egtC ?? 670);
+  const egtColor = egtVal > 795 ? ALERT_RED : egtVal > 745 ? AMBER : PHOSPHOR;
+  drawBar('EGT TEMP', `${egtVal}°C`, (egtVal - 420) / 430, 72, egtColor);
 
   const integrity = Math.max(0, 100 - Math.round(flightState.airframeDmgPct));
   const engHealth = Math.max(0, 100 - Math.round(flightState.engineStressPct));
   const dmgColor = flightState.damagePct > 35 ? ALERT_RED : flightState.damagePct > 12 ? AMBER : PHOSPHOR;
-  drawBar('AIRFRAME / ENG', `${integrity}% / ${engHealth}%`, Math.min(integrity, engHealth) / 100, 81, dmgColor);
+  drawBar('AIRFRAME / ENG', `${integrity}% / ${engHealth}%`, Math.min(integrity, engHealth) / 100, 99, dmgColor);
 
   const flapDeg = FLAP_ANGLES_DEG[flightState.flapIndex] ?? 0;
-  ctx.fillStyle = flapDeg > 0 ? AMBER : CRISP_WHITE;
-  ctx.font = 'bold 11px Consolas, monospace';
+  ctx.font = 'bold 10.5px Consolas, monospace';
   ctx.textAlign = 'left';
-  ctx.fillText(`FLAPS: ${flapDeg === 0 ? 'UP' : `${flapDeg}°`}`, 25, sysY + 114);
+  ctx.fillStyle = flapDeg > 0 ? AMBER : CRISP_WHITE;
+  ctx.fillText(`FLP:${flapDeg === 0 ? 'UP' : `${flapDeg}°`}`, 25, sysY + 128);
+  ctx.textAlign = 'center';
+  ctx.fillStyle = flightState.tailhookDeployed ? AMBER : '#9db7c7';
+  ctx.fillText(`HOOK:${flightState.tailhookDeployed ? 'DN' : 'UP'}`, 16 + sysW * 0.52, sysY + 128);
   ctx.textAlign = 'right';
   ctx.fillStyle = flightState.brakes ? AMBER : CRISP_WHITE;
-  ctx.fillText(`BRK: ${flightState.brakes ? 'ON' : 'OFF'}`, 16 + sysW - 9, sysY + 114);
+  ctx.fillText(`BRK:${flightState.brakes ? 'ON' : 'OFF'}`, 16 + sysW - 9, sysY + 128);
 
   // Active aircraft tag at bottom of systems pod
   ctx.textAlign = 'left';
   ctx.fillStyle = '#9db7c7';
   ctx.font = 'bold 10px Consolas, monospace';
-  ctx.fillText(flightState.aircraftSpec?.shortLabel ?? 'ATW-28 ISLANDER', 25, sysY + 128);
+  ctx.fillText(flightState.aircraftSpec?.shortLabel ?? 'ATW-28 ISLANDER', 25, sysY + 144);
 }
 
 function drawMissionDirector(ctx, width, missionView) {
@@ -593,43 +719,50 @@ export function drawTacticalMiniRadar(ctx, x, y, size, flightState, missionView,
 
 export function renderTouchdownCard(ctx, width, height, card) {
   if (!card) return;
-  const w = 316;
-  const h = 148;
+  const w = 344;
+  const h = 176;
   const x = width - w - 18;
-  const y = height - h - 22;
+  const y = height - h - 24;
 
-  const accent =
-    card.rating === 'SMOOTH STOL TOUCHDOWN' || card.rating === 'DECK ARREST STOL LANDING'
-      ? PHOSPHOR
-      : card.rating === 'FIRM UTILITY LANDING'
-        ? AMBER
-        : ALERT_RED;
+  const isTopRating =
+    card.rating === 'SMOOTH STOL TOUCHDOWN' ||
+    card.rating === 'DECK ARREST STOL LANDING' ||
+    card.rating?.includes('CARRIER TRAP');
+  const accent = isTopRating ? PHOSPHOR : card.rating === 'FIRM UTILITY LANDING' ? AMBER : ALERT_RED;
 
-  drawBevelPanel(ctx, x, y, w, h, accent, 'rgba(8, 16, 24, 0.92)');
+  drawBevelPanel(ctx, x, y, w, h, accent, 'rgba(8, 16, 24, 0.93)');
 
   ctx.fillStyle = accent;
   ctx.font = 'bold 13px Bahnschrift, "Segoe UI", sans-serif';
   ctx.textAlign = 'left';
-  ctx.fillText(card.rating, x + 14, y + 24);
+  ctx.fillText(card.rating, x + 14, y + 23);
 
-  ctx.fillStyle = CRISP_WHITE;
-  ctx.font = '11px Consolas, monospace';
-  ctx.textAlign = 'right';
-  ctx.fillText(card.runwayName, x + w - 14, y + 24);
+  // Grade pill badge (S / A / B / C)
+  const grade = card.grade ?? 'A';
+  drawBevelPanel(ctx, x + w - 74, y + 8, 60, 21, accent, '#0c1d2b');
+  ctx.fillStyle = accent;
+  ctx.font = 'bold 11px Consolas, monospace';
+  ctx.textAlign = 'center';
+  ctx.fillText(`GRD ${grade}`, x + w - 44, y + 22);
+
+  const aoaTxt = typeof card.touchdownAoaDeg === 'number' ? `${card.touchdownAoaDeg.toFixed(1)}°` : '5.5°';
+  const ilsTxt = typeof card.ilsDevDots === 'number' ? `${card.ilsDevDots.toFixed(2)} DOT` : '0.25 DOT';
+  const maxGTxt = typeof card.maxG === 'number' ? `${card.maxG.toFixed(1)}G` : '1.4G';
+  const burnTxt = typeof card.fuelBurnedPct === 'number' ? `${card.fuelBurnedPct}% BURN` : '12% BURN';
 
   const rows = [
-    ['TOUCHDOWN SINK RATE', `${card.sinkRateFpm} FPM`],
-    ['TOUCHDOWN AIRSPEED', `${card.touchdownKts} KTS`],
-    ['CENTERLINE OFFSET', `${card.centerlineM} M`],
-    ['RUNWAY ROLLOUT DIST', `${card.stoppingDistanceM} M (${Math.round(card.stoppingDistanceM * 3.28084)} FT)`],
-    ['FUEL / AIRFRAME', `${card.fuelRemainingPct}% FUEL | ${100 - card.damagePct}% OK`],
+    ['RUNWAY / SINK / IAS', `${card.runwayName.split(' ')[0]} | ${card.sinkRateFpm} FPM | ${card.touchdownKts} KT`],
+    ['TOUCHDOWN AoA / ILS', `AoA ${aoaTxt} | ILS ${ilsTxt}`],
+    ['CENTERLINE / ROLLOUT', `${card.centerlineM} M | ${card.stoppingDistanceM} M (${Math.round(card.stoppingDistanceM * 3.28084)} FT)`],
+    ['FLIGHT RECORDER', `MAX ${maxGTxt} | ${burnTxt}`],
+    ['FUEL REM / AIRFRAME', `${card.fuelRemainingPct}% FUEL | ${100 - card.damagePct}% OK`],
   ];
 
-  ctx.font = 'bold 12px Consolas, monospace';
+  ctx.font = 'bold 11.5px Consolas, monospace';
   for (let i = 0; i < rows.length; i += 1) {
-    const ry = y + 48 + i * 21;
+    const ry = y + 50 + i * 24;
     ctx.textAlign = 'left';
-    ctx.fillStyle = '#b9cbd6';
+    ctx.fillStyle = '#a8c2d1';
     ctx.fillText(rows[i][0], x + 14, ry);
     ctx.textAlign = 'right';
     ctx.fillStyle = CRISP_WHITE;
@@ -651,8 +784,14 @@ export function renderCockpitHud(hud, flightState, missionView, weather, cameraM
   const centerY = cameraMode === 'cockpit' ? height * 0.39 : height * 0.47;
 
   drawArtificialHorizon(ctx, width * 0.5, centerY, flightState);
+  if (cameraMode !== 'cockpit' && !flightState.onGround) {
+    drawIlsNeedles(ctx, width, width * 0.5, centerY, flightState.ils);
+  }
   drawHeadingTape(ctx, width * 0.5, 14, flightState.headingDeg, missionView?.bearingDeg, cameraMode);
   drawSpeedTape(ctx, 18, centerY, flightState);
+  if (width >= 760) {
+    drawAoaIndexer(ctx, 126, centerY, flightState);
+  }
   drawAltitudeTape(ctx, width - 18, centerY, flightState);
   drawWindAndSystems(ctx, width, height, flightState, weather, cameraMode);
   drawMissionDirector(ctx, width, missionView);

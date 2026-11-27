@@ -5,6 +5,7 @@ export function createInputController(canvasElement) {
   const pending = {
     flapStep: false,
     toggleCamera: false,
+    toggleTailhook: false,
     resetSortie: false,
     togglePause: false,
     toggleMute: false,
@@ -46,6 +47,7 @@ export function createInputController(canvasElement) {
     if (!event.repeat) {
       if (code === 'KeyF') pending.flapStep = true;
       else if (code === 'KeyC') pending.toggleCamera = true;
+      else if (code === 'KeyH') pending.toggleTailhook = true;
       else if (code === 'KeyR') pending.resetSortie = true;
       else if (code === 'KeyM') pending.toggleMute = true;
       else if (code === 'KeyP' || code === 'Escape') pending.togglePause = true;
@@ -143,6 +145,7 @@ export function samplePilotControls(input) {
 
   const flapStep = pending.flapStep;
   const toggleCamera = pending.toggleCamera;
+  const toggleTailhook = pending.toggleTailhook;
   const resetSortie = pending.resetSortie;
   const togglePause = pending.togglePause;
   const toggleMute = pending.toggleMute;
@@ -151,6 +154,7 @@ export function samplePilotControls(input) {
 
   pending.flapStep = false;
   pending.toggleCamera = false;
+  pending.toggleTailhook = false;
   pending.resetSortie = false;
   pending.togglePause = false;
   pending.toggleMute = false;
@@ -167,6 +171,7 @@ export function samplePilotControls(input) {
     flapStep,
     brakes,
     toggleCamera,
+    toggleTailhook,
     resetSortie,
     togglePause,
     toggleMute,

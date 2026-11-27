@@ -259,7 +259,7 @@ export function updateMissionProgress(mState, flightState, aids, dropRequested, 
     if (inDropEnvelope && (dropRequested || horizDist < 58)) {
       dz.delivered = true;
       dz.ringMat.color.setHex(0x4bf598);
-      dz.flarePillar.material.color.setHex(0x4bf598);
+      dz.flareMat?.color.setHex(0x4bf598);
       mState.dropsCompleted += 1;
       mState.statusBanner = `SUPPLY DROP ${mState.dropsCompleted}/${mState.totalDrops} DELIVERED`;
       mState.bannerTimer = 3.2;
@@ -285,28 +285,39 @@ export function scoreMissionCompletion(mState, flightState) {
   const dropScore = mState.dropsCompleted * 450;
   const fuelBonus = Math.round(flightState.fuelPct * 12);
   const airframeBonus = Math.round((100 - flightState.damagePct) * 10);
-  const smoothBonus =
-    flightState.lastLandingCard?.rating === 'SMOOTH STOL TOUCHDOWN' ||
-    flightState.lastLandingCard?.rating === 'DECK ARREST STOL LANDING'
+  const card = flightState.lastLandingCard;
+  const isWireTrap = Boolean(card?.wireNumber > 0);
+  const smoothBonus = isWireTrap
+    ? card.wireNumber === 2
+      ? 800
+      : 720
+    : card?.rating === 'SMOOTH STOL TOUCHDOWN' || card?.rating === 'DECK ARREST STOL LANDING'
       ? 650
-      : flightState.lastLandingCard?.rating === 'FIRM UTILITY LANDING'
+      : card?.rating === 'FIRM UTILITY LANDING'
         ? 350
         : 120;
 
   const totalScore = gateScore + dropScore + fuelBonus + airframeBonus + smoothBonus;
-  const rank = totalScore >= 2450 ? 'GOLD WINGS' : totalScore >= 1900 ? 'SILVER WINGS' : 'QUALIFIED PILOT';
+  const rank = totalScore >= 2500 ? 'GOLD WINGS' : totalScore >= 1900 ? 'SILVER WINGS' : 'QUALIFIED PILOT';
+  const rec = flightState.recorder;
 
   return {
     missionTitle: mState.mission.title,
     aircraftName: flightState.aircraftSpec?.shortLabel ?? 'ATW-28',
     totalScore,
     rank,
+    grade: card?.grade ?? rec?.grade ?? 'A',
     elapsedSec: Math.round(mState.elapsedSec),
     fuelRemainingPct: Math.round(flightState.fuelPct),
+    fuelBurnedPct: Math.round(rec?.fuelBurnedPct ?? 0),
+    maxG: Number((rec?.maxG ?? 1.0).toFixed(1)),
+    touchdownAoaDeg: Number((card?.touchdownAoaDeg ?? rec?.touchdownAoaDeg ?? 0).toFixed(1)),
+    ilsDevDots: Number((card?.ilsDevDots ?? rec?.touchdownIlsDev ?? 0).toFixed(2)),
+    wireNumber: card?.wireNumber ?? 0,
     damagePct: Math.round(flightState.damagePct),
-    landingRating: flightState.lastLandingCard?.rating ?? 'RUNWAY STOP',
-    stoppingDistanceM: flightState.lastLandingCard?.stoppingDistanceM ?? 0,
-    sinkRateFpm: flightState.lastLandingCard?.sinkRateFpm ?? 0,
+    landingRating: card?.rating ?? 'RUNWAY STOP',
+    stoppingDistanceM: card?.stoppingDistanceM ?? 0,
+    sinkRateFpm: card?.sinkRateFpm ?? 0,
   };
 }
 

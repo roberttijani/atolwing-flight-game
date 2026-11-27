@@ -475,25 +475,27 @@ function createGlslOceanMesh(depthTex) {
       uniform float uTerrainSpan;
       varying vec3 vWorldPos;
 
-      float waveHeight(vec2 p, float t, float detailAtten) {
+      float waveHeight(vec2 p, float t, float nearAtten, float farAtten) {
         float h = 0.0;
-        h += sin(p.x * 0.044 + p.y * 0.027 + t * 1.55) * 0.46;
-        h += sin(p.x * -0.068 + p.y * 0.059 + t * 2.05) * 0.30;
-        h += sin(p.x * 0.132 - p.y * 0.108 + t * 2.65) * (0.14 * detailAtten);
-        h += cos(p.x * 0.245 + p.y * 0.210 - t * 3.10) * (0.07 * detailAtten * detailAtten);
+        h += sin(p.x * 0.044 + p.y * 0.027 + t * 1.55) * (0.46 * farAtten);
+        h += sin(p.x * -0.068 + p.y * 0.059 + t * 2.05) * (0.30 * farAtten);
+        h += sin(p.x * 0.132 - p.y * 0.108 + t * 2.65) * (0.14 * nearAtten);
+        h += cos(p.x * 0.245 + p.y * 0.210 - t * 3.10) * (0.07 * nearAtten * nearAtten);
         return h;
       }
 
       void main() {
         vec2 p = vWorldPos.xz;
         float dist = length(cameraPosition - vWorldPos);
-        float detailAtten = 1.0 - smoothstep(220.0, 1850.0, dist);
-        float eps = 1.15 + dist * 0.0014;
-        float hC = waveHeight(p, uTime, detailAtten);
-        float hX = waveHeight(p + vec2(eps, 0.0), uTime, detailAtten);
-        float hZ = waveHeight(p + vec2(0.0, eps), uTime, detailAtten);
+        // Smooth two-band distance attenuation removes distant Nyquist moire striping cleanly
+        float nearAtten = 1.0 - smoothstep(140.0, 760.0, dist);
+        float farAtten = 1.0 - smoothstep(340.0, 1650.0, dist);
+        float eps = 1.15 + dist * 0.0022;
+        float hC = waveHeight(p, uTime, nearAtten, farAtten);
+        float hX = waveHeight(p + vec2(eps, 0.0), uTime, nearAtten, farAtten);
+        float hZ = waveHeight(p + vec2(0.0, eps), uTime, nearAtten, farAtten);
 
-        float chop = (0.34 + uStormFactor * 0.44) * (0.32 + 0.68 * detailAtten);
+        float chop = (0.34 + uStormFactor * 0.44) * farAtten;
         vec3 N = normalize(vec3((hC - hX) * chop, 1.0, (hC - hZ) * chop));
         vec3 V = normalize(cameraPosition - vWorldPos);
         vec3 L = normalize(uSunDir);
@@ -518,7 +520,7 @@ function createGlslOceanMesh(depthTex) {
 
         // Dual-lobe sun glitter path across wave facets (smoothly anti-aliased with distance)
         vec3 H = normalize(L + V);
-        float specSharp = pow(max(dot(N, H), 0.0), mix(110.0, 210.0, detailAtten)) * (1.65 - uStormFactor * 1.15);
+        float specSharp = pow(max(dot(N, H), 0.0), mix(95.0, 210.0, nearAtten)) * (1.65 - uStormFactor * 1.15);
         float specBroad = pow(max(dot(N, H), 0.0), 22.0) * (0.36 - uStormFactor * 0.18);
         col += uSunColor * (specSharp + specBroad);
 
@@ -527,7 +529,7 @@ function createGlslOceanMesh(depthTex) {
         float innerEdge = smoothstep(1.35, 0.08, waterDepth) * (0.45 + 0.55 * surfBreak);
         float outerRoller = smoothstep(2.9, 1.1, waterDepth) * smoothstep(0.68, 0.94, surfBreak) * 0.55;
         float shoreFoam = clamp(innerEdge + outerRoller, 0.0, 0.88);
-        float crestFoam = smoothstep(0.56 - uStormFactor * 0.18, 0.92, hC) * (0.06 + uStormFactor * 0.28) * (0.3 + 0.7 * detailAtten);
+        float crestFoam = smoothstep(0.56 - uStormFactor * 0.18, 0.92, hC) * (0.06 + uStormFactor * 0.28) * (0.25 + 0.75 * nearAtten) * farAtten;
         float totalFoam = clamp(shoreFoam + crestFoam, 0.0, 0.88);
         vec3 foamColor = mix(vec3(0.86, 0.92, 0.96), uSunColor * 0.30 + vec3(0.78), 0.42);
         col = mix(col, foamColor, totalFoam);

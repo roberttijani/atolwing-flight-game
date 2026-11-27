@@ -12,6 +12,7 @@
     <nav class="deck-nav" aria-label="Flight Deck Controls">
       <button type="button" id="btn-camera" class="deck-btn" aria-pressed="false">Cam: Chase [C]</button>
       <button type="button" id="btn-flaps" class="deck-btn">Flaps: 15 deg [F]</button>
+      <button type="button" id="btn-hook" class="deck-btn" aria-pressed="false">Hook: UP [H]</button>
       <button type="button" id="btn-brakes" class="deck-btn" aria-pressed="false">Brakes: OFF [B]</button>
       <button type="button" id="btn-mute" class="deck-btn" aria-pressed="false">Audio: Live [M]</button>
       <button type="button" id="btn-reset" class="deck-btn">Reset [R]</button>
@@ -96,7 +97,7 @@
           <div><strong>A / D</strong> or <strong>Left / Right</strong>: Roll Bank</div>
           <div><strong>Q / E</strong>: Rudder Yaw</div>
           <div><strong>Shift / Ctrl</strong>: Throttle %</div>
-          <div><strong>F</strong>: STOL Flaps | <strong>B</strong>: Brakes</div>
+          <div><strong>F</strong>: STOL Flaps | <strong>B</strong>: Brakes | <strong>H</strong>: Tailhook</div>
           <div><strong>C</strong>: Cockpit / Chase | <strong>Space</strong>: Drop</div>
         </div>
 
@@ -140,6 +141,14 @@
             <dt>FUEL ON BOARD</dt>
             <dd id="crash-fuel">0%</dd>
           </div>
+          <div>
+            <dt>FLIGHT RECORDER (MAX G / MIN STALL)</dt>
+            <dd id="crash-recorder">1.0G / +25 KT</dd>
+          </div>
+          <div>
+            <dt>IMPACT AoA / FUEL BURNED</dt>
+            <dd id="crash-aoa">0.0 deg / 0%</dd>
+          </div>
         </dl>
         <div class="modal-actions">
           <button type="button" id="btn-crash-deck" class="deck-btn">Sortie Deck</button>
@@ -171,6 +180,14 @@
           <div>
             <dt>FUEL RESERVE</dt>
             <dd id="complete-fuel">50%</dd>
+          </div>
+          <div>
+            <dt>TOUCHDOWN AoA / ILS DEV</dt>
+            <dd id="complete-ils">5.5 deg / 0.25 DOT</dd>
+          </div>
+          <div>
+            <dt>FLIGHT RECORDER (GRADE / MAX G / BURN)</dt>
+            <dd id="complete-recorder">Grade S | 1.4G | 12% Fuel</dd>
           </div>
         </dl>
         <div class="modal-actions">

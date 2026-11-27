@@ -258,6 +258,8 @@ function buildPapiBoxRow() {
 function buildOffshorePlatformStructure(rwyGroup, spec) {
   const steelMat = new THREE.MeshStandardMaterial({ color: 0x3b4856, roughness: 0.52, metalness: 0.58 });
   const yellowSteelMat = new THREE.MeshStandardMaterial({ color: 0xd99b26, roughness: 0.48, metalness: 0.42 });
+  const wireMat = new THREE.MeshStandardMaterial({ color: 0x151a20, roughness: 0.35, metalness: 0.85 });
+  const foulPaintMat = new THREE.MeshBasicMaterial({ color: 0xffc43d });
 
   // Deep structural steel deck box slab underneath the runway top surface
   const deckSlab = new THREE.Mesh(new THREE.BoxGeometry(spec.length + 6, 4.4, spec.width + 6), steelMat);
@@ -274,6 +276,46 @@ function buildOffshorePlatformStructure(rwyGroup, spec) {
       rwyGroup.add(leg);
     }
   }
+
+  // Angled carrier landing zone foul-lines & 3 steel Arrestor Wires (-76, -52, -28 m)
+  const angledGroup = new THREE.Group();
+  angledGroup.rotation.y = 0.08;
+  for (let zOff of [-spec.width * 0.32, spec.width * 0.32]) {
+    const foulLine = new THREE.Mesh(new THREE.PlaneGeometry(spec.length * 0.76, 0.85), foulPaintMat);
+    foulLine.rotation.x = -Math.PI * 0.5;
+    foulLine.position.set(0, 0.035, zOff);
+    angledGroup.add(foulLine);
+  }
+  rwyGroup.add(angledGroup);
+
+  const wireXs = [-76, -52, -28];
+  for (let w = 0; w < wireXs.length; w += 1) {
+    const wx = wireXs[w];
+    const cable = new THREE.Mesh(new THREE.CylinderGeometry(0.11, 0.11, spec.width - 8, 8), wireMat);
+    cable.rotation.x = Math.PI * 0.5;
+    cable.position.set(wx, 0.16, 0);
+    rwyGroup.add(cable);
+    for (let zEnd of [-spec.width * 0.44, spec.width * 0.44]) {
+      const sheave = new THREE.Mesh(new THREE.BoxGeometry(1.8, 0.55, 2.2), yellowSteelMat);
+      sheave.position.set(wx, 0.28, zEnd);
+      rwyGroup.add(sheave);
+    }
+  }
+
+  // Optical Landing System (OLS / Meatball) Fresnel Lens Box on port deck edge
+  const olsGroup = new THREE.Group();
+  olsGroup.position.set(-54, 2.1, -spec.width * 0.5 - 3.6);
+  const olsHousing = new THREE.Mesh(new THREE.BoxGeometry(1.6, 4.4, 2.8), steelMat);
+  const datumMat = new THREE.MeshBasicMaterial({ color: 0x38f27c });
+  const leftDatum = new THREE.Mesh(new THREE.BoxGeometry(0.35, 0.42, 3.8), datumMat);
+  leftDatum.position.set(-0.9, 0, -3.2);
+  const rightDatum = new THREE.Mesh(new THREE.BoxGeometry(0.35, 0.42, 3.8), datumMat);
+  rightDatum.position.set(-0.9, 0, 3.2);
+  const meatballMat = new THREE.MeshBasicMaterial({ color: 0xffb338 });
+  const meatball = new THREE.Mesh(new THREE.SphereGeometry(0.68, 10, 10), meatballMat);
+  meatball.position.set(-0.95, 0, 0);
+  olsGroup.add(olsHousing, leftDatum, rightDatum, meatball);
+  rwyGroup.add(olsGroup);
 
   // Deck-edge beacon lights (amber/blue maritime deck lighting)
   const blueMat = new THREE.MeshBasicMaterial({ color: 0x45c8ff });
@@ -294,6 +336,8 @@ function buildOffshorePlatformStructure(rwyGroup, spec) {
   const beacon = new THREE.Mesh(new THREE.SphereGeometry(0.85, 8, 8), new THREE.MeshBasicMaterial({ color: 0xff3b30 }));
   beacon.position.set(28, 33.5, -spec.width * 0.5 - 7);
   rwyGroup.add(opsCab, mast, beacon);
+
+  return { meatball, meatballMat };
 }
 
 export function computePapiSlopeLights(aircraftPos, thresholdWorldPos) {
@@ -357,8 +401,9 @@ export function buildAerodromesAndRings(scene) {
 
     addCrispRunwayMarkings(rwyGroup, spec);
 
+    let olsRef = null;
     if (spec.offshore) {
-      buildOffshorePlatformStructure(rwyGroup, spec);
+      olsRef = buildOffshorePlatformStructure(rwyGroup, spec);
     } else {
       const edgeLightMat = new THREE.MeshBasicMaterial({ color: 0xfff4d2 });
       const greenBarMat = new THREE.MeshBasicMaterial({ color: 0x36f57f });
@@ -464,6 +509,7 @@ export function buildAerodromesAndRings(scene) {
       rwyGroup,
       papiPrimary,
       papiSecondary,
+      olsRef,
       primaryThresholdPos: new THREE.Vector3(
         spec.centerX - fwdX * (spec.length * 0.5 - papiOff),
         spec.elevation,
@@ -632,6 +678,7 @@ export function rebuildMissionRings(aids, ringDefs = [], dropZoneDefs = []) {
       position: new THREE.Vector3(dz.x, groundY, dz.z),
       dzGroup,
       ringMat,
+      flareMat,
       flarePillar,
       delivered: false,
     });
@@ -665,6 +712,16 @@ export function updateRunwayAidsAndRings(aids, aircraftPos, activeRingIdx, weath
     const whiteCount2 = computePapiSlopeLights(aircraftPos, rwy.secondaryThresholdPos);
     for (let l = 0; l < 4; l += 1) {
       rwy.papiSecondary.lamps[l].color.setHex(l < whiteCount2 ? 0xfff8eb : 0xff2b24);
+    }
+    if (rwy.olsRef) {
+      const hDist = Math.max(
+        18,
+        Math.hypot(aircraftPos.x - rwy.primaryThresholdPos.x, aircraftPos.z - rwy.primaryThresholdPos.z),
+      );
+      const slopeDeg = (Math.atan2(aircraftPos.y - rwy.primaryThresholdPos.y, hDist) * 180) / Math.PI;
+      const err = Math.max(-1.6, Math.min(1.6, (slopeDeg - 3.5) * 1.15));
+      rwy.olsRef.meatball.position.y = err;
+      rwy.olsRef.meatballMat.color.setHex(err < -0.95 ? 0xff3b30 : 0xffb338);
     }
   }
 

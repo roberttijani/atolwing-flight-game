@@ -2,9 +2,11 @@
 import * as THREE from '../vendor/three.min.js';
 import {
   CALDERA_PEAK_POS,
+  RUNWAY_SPECS,
   SEA_LEVEL,
   classifySurfaceMaterial,
   findContainingRunway,
+  projectOntoRunway,
   sampleTerrainHeight,
 } from './terrainWorld.js';
 import { getAircraftSpec } from './aircraftCatalog.js';
@@ -60,10 +62,37 @@ export function createFlightState(aircraftId = 'islander') {
 
     fuelPct: 86.0,
     fuelFlowKgH: 142,
+    egtC: 675,
+    stallMarginKts: 42,
     airframeDmgPct: 0.0,
     engineStressPct: 0.0,
     damagePct: 0.0,
     engineOverheatWarning: false,
+
+    tailhookDeployed: false,
+    arrestedWire: 0,
+    justArrestedWire: 0,
+
+    ils: {
+      active: false,
+      runwayId: 'WARA',
+      runwayLabel: 'WARA 09',
+      locDots: 0,
+      gsDots: 0,
+      distNm: 0,
+      aligned: false,
+    },
+
+    recorder: {
+      startFuelPct: 86.0,
+      maxG: 1.0,
+      minStallMarginKts: 42,
+      touchdownAoaDeg: 0,
+      touchdownIlsDev: 0,
+      fuelBurnedPct: 0,
+      wireNumber: 0,
+      grade: 'A',
+    },
 
     onGround: false,
     onWater: false,
@@ -180,10 +209,28 @@ export function resetAircraftAtSpawn(state, spawn) {
   const baseFuel = spawn.fuelPct ?? 82.0;
   state.fuelPct = clamp(baseFuel * spec.fuelCapMultiplier, 18, 100);
   state.fuelFlowKgH = Math.round(95 * spec.fuelBurnScale);
+  state.egtC = Math.round(455 + state.throttle * 310);
+  const stallThresh = spec.stallCleanKts - state.flapNorm * 11;
+  state.stallMarginKts = Math.max(0, speedKts - stallThresh);
   state.airframeDmgPct = 0.0;
   state.engineStressPct = 0.0;
   state.damagePct = 0.0;
   state.engineOverheatWarning = false;
+
+  state.tailhookDeployed = Boolean(spawn.tailhookDeployed);
+  state.arrestedWire = 0;
+  state.justArrestedWire = 0;
+
+  state.recorder = {
+    startFuelPct: state.fuelPct,
+    maxG: 1.0,
+    minStallMarginKts: state.stallMarginKts,
+    touchdownAoaDeg: 0,
+    touchdownIlsDev: 0,
+    fuelBurnedPct: 0,
+    wireNumber: 0,
+    grade: 'A',
+  };
 
   state.onGround = Boolean(spawn.onGround);
   state.onWater = false;
@@ -246,7 +293,55 @@ export function applyThrottleFuelBurn(state, dt) {
   } else if (thr < 0.78) {
     state.engineStressPct = Math.max(0, state.engineStressPct - 1.4 * dt);
   }
-  state.engineOverheatWarning = state.engineStressPct > 45;
+  const targetEgt = 455 + thr * 315 + state.engineStressPct * 1.45;
+  state.egtC += (targetEgt - state.egtC) * Math.min(1, dt * 2.2);
+  state.engineOverheatWarning = state.engineStressPct > 45 || state.egtC > 795;
+}
+
+export function computeIlsGuidance(state, targetRunwayId = null) {
+  let rwy = targetRunwayId ? RUNWAY_SPECS.find((r) => r.id === targetRunwayId) : null;
+  if (!rwy) {
+    let bestD = Infinity;
+    for (let i = 0; i < RUNWAY_SPECS.length; i += 1) {
+      const cand = RUNWAY_SPECS[i];
+      const d = Math.hypot(state.position.x - cand.centerX, state.position.z - cand.centerZ);
+      if (d < bestD) {
+        bestD = d;
+        rwy = cand;
+      }
+    }
+  }
+  if (!rwy) return state.ils;
+
+  const proj = projectOntoRunway(state.position.x, state.position.z, rwy);
+  const isPrimary = proj.along <= 40;
+  const aimAlong = isPrimary ? -rwy.length * 0.5 + (rwy.offshore ? 65 : 95) : rwy.length * 0.5 - (rwy.offshore ? 65 : 95);
+  const distToAim = isPrimary ? aimAlong - proj.along : proj.along - aimAlong;
+  const latErrM = isPrimary ? proj.cross : -proj.cross;
+  const horizRange = Math.max(85, Math.abs(distToAim));
+
+  // STOL Archipelago ILS Localizer (+/- 3.6 deg = +/- 2 dots) & Glideslope (+/- 1.3 deg = +/- 2 dots)
+  const locAngleDeg = (Math.atan2(latErrM, horizRange) * 180) / Math.PI;
+  const locDots = clamp(-locAngleDeg / 1.8, -2.2, 2.2);
+
+  // Glideslope: 3.2 deg STOL (3.5 deg for WAPO offshore deck)
+  const nominalSlopeDeg = rwy.offshore ? 3.5 : 3.2;
+  const relAltM = state.position.y - (rwy.elevation + 2.35);
+  const actualSlopeDeg = (Math.atan2(relAltM, horizRange) * 180) / Math.PI;
+  const gsDots = clamp((nominalSlopeDeg - actualSlopeDeg) / 0.65, -2.2, 2.2);
+
+  const distM = Math.hypot(distToAim, latErrM);
+  const active = distM < 6800 && distToAim > -220;
+  state.ils = {
+    active,
+    runwayId: rwy.id,
+    runwayLabel: `${rwy.id} ${isPrimary ? rwy.primaryLabel : rwy.secondaryLabel}`,
+    locDots,
+    gsDots,
+    distNm: Number((distM / 1852).toFixed(1)),
+    aligned: Math.abs(locDots) < 0.65 && Math.abs(gsDots) < 0.65,
+  };
+  return state.ils;
 }
 
 function recordCrash(state, causeTitle, detailText) {
@@ -254,6 +349,7 @@ function recordCrash(state, causeTitle, detailText) {
   state.airframeDmgPct = 100;
   state.damagePct = 100;
   state.throttle = 0;
+  const rec = state.recorder;
   state.crashReport = {
     cause: causeTitle,
     detail: detailText,
@@ -263,7 +359,32 @@ function recordCrash(state, causeTitle, detailText) {
     pitchDeg: Math.round(state.pitchDeg),
     rollDeg: Math.round(state.rollDeg),
     fuelPct: Math.round(state.fuelPct),
+    maxG: Number((rec?.maxG ?? state.gLoad).toFixed(1)),
+    minStallMarginKts: Math.round(rec?.minStallMarginKts ?? 0),
+    aoaDeg: Number(state.alphaDeg.toFixed(1)),
+    fuelBurnedPct: Math.round(rec?.fuelBurnedPct ?? 0),
   };
+}
+
+const WAPO_WIRE_ALONG_M = [-76, -52, -28];
+
+function checkOffshoreWireCatch(state, runwayHit) {
+  if (!runwayHit?.runway?.offshore || !state.tailhookDeployed || state.arrestedWire > 0) return 0;
+  if (state.groundSpeedKts < 18) return 0;
+  for (let w = 0; w < WAPO_WIRE_ALONG_M.length; w += 1) {
+    if (Math.abs(runwayHit.along - WAPO_WIRE_ALONG_M[w]) <= 11.5) {
+      return w + 1;
+    }
+  }
+  return 0;
+}
+
+export function computeLandingGrade(sinkFpm, centerlineM, aoaDeg, ilsDev, wireNumber, bounceCount, dmgPct) {
+  if (bounceCount > 0 || sinkFpm > 520 || dmgPct > 25) return 'C';
+  if (wireNumber === 2 && sinkFpm <= 320 && centerlineM <= 5.5) return 'S';
+  if (sinkFpm <= 210 && centerlineM <= 4.5 && ilsDev <= 0.75 && aoaDeg >= 2.0 && aoaDeg <= 10.5) return 'S';
+  if (sinkFpm <= 380 && centerlineM <= 8.5) return 'A';
+  return 'B';
 }
 
 export function evaluateRunwayContact(state, prevVelY, runwayHit) {
@@ -292,12 +413,23 @@ export function evaluateRunwayContact(state, prevVelY, runwayHit) {
     state.touchdownPos.copy(state.position);
     state.rolloutDistanceM = 0;
     state.bounceCount = 0;
+    state.recorder.touchdownAoaDeg = Number(state.alphaDeg.toFixed(1));
+    state.recorder.touchdownIlsDev = Number(
+      Math.hypot(state.ils?.locDots ?? 0, state.ils?.gsDots ?? 0).toFixed(2),
+    );
+  }
+
+  const caughtWire = checkOffshoreWireCatch(state, runwayHit);
+  if (caughtWire > 0) {
+    state.arrestedWire = caughtWire;
+    state.justArrestedWire = caughtWire;
+    state.recorder.wireNumber = caughtWire;
   }
 
   if (sinkFpm > 540) {
     const dmgAdd = ((sinkFpm - 520) / 520) * 34;
     state.airframeDmgPct = clamp(state.airframeDmgPct + dmgAdd, 0, 100);
-    if (sinkFpm > 620 && speedKts > 48) {
+    if (sinkFpm > 620 && speedKts > 48 && state.arrestedWire === 0) {
       state.bounceCount += 1;
       state.velocity.y = Math.min(3.4, Math.abs(prevVelY) * 0.34);
       state.onGround = false;
@@ -308,22 +440,41 @@ export function evaluateRunwayContact(state, prevVelY, runwayHit) {
 
   state.damagePct = clamp(Math.max(state.airframeDmgPct, state.engineStressPct * 0.65), 0, 100);
 
+  const grade = computeLandingGrade(
+    sinkFpm,
+    state.touchdownOffsetM,
+    state.recorder.touchdownAoaDeg,
+    state.recorder.touchdownIlsDev,
+    state.arrestedWire,
+    state.bounceCount,
+    state.damagePct,
+  );
+  state.recorder.grade = grade;
+
   const rating =
-    state.bounceCount > 0
-      ? 'BOUNCED LANDING'
-      : sinkFpm <= 210 && state.touchdownOffsetM <= 6.5
-        ? runwayHit.runway.offshore
-          ? 'DECK ARREST STOL LANDING'
-          : 'SMOOTH STOL TOUCHDOWN'
-        : sinkFpm <= 460
-          ? 'FIRM UTILITY LANDING'
-          : 'HARD LANDING';
+    state.arrestedWire > 0
+      ? `WIRE #${state.arrestedWire} CARRIER TRAP`
+      : state.bounceCount > 0
+        ? 'BOUNCED LANDING'
+        : sinkFpm <= 210 && state.touchdownOffsetM <= 6.5
+          ? runwayHit.runway.offshore
+            ? 'DECK ARREST STOL LANDING'
+            : 'SMOOTH STOL TOUCHDOWN'
+          : sinkFpm <= 460
+            ? 'FIRM UTILITY LANDING'
+            : 'HARD LANDING';
 
   state.lastLandingCard = {
     rating,
+    grade,
+    wireNumber: state.arrestedWire,
     runwayName: `${runwayHit.runway.id} RWY ${runwayHit.runway.code}`,
     sinkRateFpm: state.touchdownSinkFpm,
     touchdownKts: state.touchdownSpeedKts,
+    touchdownAoaDeg: state.recorder.touchdownAoaDeg,
+    ilsDevDots: state.recorder.touchdownIlsDev,
+    maxG: Number(state.recorder.maxG.toFixed(1)),
+    fuelBurnedPct: Math.round(state.recorder.fuelBurnedPct),
     centerlineM: state.touchdownOffsetM,
     stoppingDistanceM: Math.round(state.rolloutDistanceM),
     fuelRemainingPct: Math.round(state.fuelPct),
@@ -332,8 +483,9 @@ export function evaluateRunwayContact(state, prevVelY, runwayHit) {
   };
 }
 
-export function stepFlightPhysics(state, controls, windVec, dt) {
+export function stepFlightPhysics(state, controls, windVec, dt, targetRunwayId = null) {
   state.justTouchedDown = false;
+  state.justArrestedWire = 0;
   if (state.crashed) return;
 
   const spec = state.aircraftSpec ?? getAircraftSpec(state.aircraftId);
@@ -342,6 +494,9 @@ export function stepFlightPhysics(state, controls, windVec, dt) {
   state.throttle = clamp(state.throttle + controls.throttleDelta * dt, 0, 1);
   if (controls.flapStep) {
     state.flapIndex = (state.flapIndex + 1) % FLAP_ANGLES_DEG.length;
+  }
+  if (controls.toggleTailhook) {
+    state.tailhookDeployed = !state.tailhookDeployed;
   }
   const targetFlapNorm = FLAP_ANGLES_DEG[state.flapIndex] / 35;
   state.flapNorm += (targetFlapNorm - state.flapNorm) * Math.min(1, dt * 3.4);
@@ -525,11 +680,26 @@ export function stepFlightPhysics(state, controls, windVec, dt) {
         const leveledRoll = att.rollDeg * Math.max(0, 1 - dt * 7.5);
         setQuaternionFromAttitude(state.quaternion, att.headingDeg, clampedPitch, leveledRoll);
 
+        // Check live wire catch during rollout across WAPO arrestor cables
+        const rollWire = checkOffshoreWireCatch(state, postRunway);
+        if (rollWire > 0) {
+          state.arrestedWire = rollWire;
+          state.justArrestedWire = rollWire;
+          state.recorder.wireNumber = rollWire;
+          if (state.lastLandingCard) {
+            state.lastLandingCard.rating = `WIRE #${rollWire} CARRIER TRAP`;
+            state.lastLandingCard.wireNumber = rollWire;
+            state.lastLandingCard.grade = rollWire === 2 ? 'S' : 'A';
+            state.recorder.grade = state.lastLandingCard.grade;
+          }
+        }
+
+        const arrestDecel = state.arrestedWire > 0 ? 34.0 : 0;
         const brakeDecel = state.brakes ? 9.8 : 0.85;
         const offRunwayDrag = postRunway ? 0 : 4.8;
         const horizSpeed = Math.hypot(state.velocity.x, state.velocity.z);
         if (horizSpeed > 0.05) {
-          const nextHoriz = Math.max(0, horizSpeed - (brakeDecel + offRunwayDrag) * dt);
+          const nextHoriz = Math.max(0, horizSpeed - (brakeDecel + offRunwayDrag + arrestDecel) * dt);
           const ratio = nextHoriz / horizSpeed;
           state.velocity.x *= ratio;
           state.velocity.z *= ratio;
@@ -579,7 +749,16 @@ export function stepFlightPhysics(state, controls, windVec, dt) {
   state.gLoad = state.onGround ? 1.0 : clamp(liftMag / (mass * 9.81), -1.8, 6.4);
 
   const stallThresholdKts = spec.stallCleanKts - state.flapNorm * 11;
+  state.stallMarginKts = Math.max(0, state.airspeedKts - stallThresholdKts);
   state.stallWarning = !state.onGround && (aero.stalled || state.airspeedKts < stallThresholdKts);
+
+  // Flight Recorder peak envelope & fuel burn telemetry
+  if (!state.onGround) {
+    state.recorder.maxG = Math.max(state.recorder.maxG, state.gLoad);
+    state.recorder.minStallMarginKts = Math.min(state.recorder.minStallMarginKts, state.stallMarginKts);
+  }
+  state.recorder.fuelBurnedPct = Math.max(0, state.recorder.startFuelPct - state.fuelPct);
+  computeIlsGuidance(state, targetRunwayId);
 
   const maxFlapKts = state.flapIndex === 2 ? 122 : state.flapIndex === 1 ? 148 : spec.redlineKts;
   state.overspeedWarning = state.airspeedKts > maxFlapKts || state.airspeedKts > spec.redlineKts;

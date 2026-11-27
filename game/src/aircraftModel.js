@@ -316,20 +316,42 @@ export function buildCockpitInterior(spec) {
   cockpitFlood.position.set(0, 1.02, -1.26);
   cockpitGroup.add(cockpitFlood);
 
-  // Contoured exterior nose cowling matching active aircraft livery
+  // Contoured exterior nose cowling with matte anti-glare strip & crisp panel seam lines
   const noseMat = new THREE.MeshStandardMaterial({
     color: spec.livery.secondary,
-    roughness: 0.36,
-    metalness: 0.42,
+    roughness: 0.42,
+    metalness: 0.36,
   });
-  const noseCowl = new THREE.Mesh(new THREE.CylinderGeometry(0.46, 0.58, 1.22, 16), noseMat);
+  const antiGlareMat = new THREE.MeshStandardMaterial({
+    color: 0x151b21,
+    roughness: 0.94,
+    metalness: 0.06,
+  });
+  const seamLineMat = new THREE.MeshStandardMaterial({
+    color: 0x0b0f14,
+    roughness: 0.78,
+    metalness: 0.35,
+  });
+  const noseCowl = new THREE.Mesh(new THREE.CylinderGeometry(0.46, 0.58, 1.22, 18), noseMat);
   noseCowl.rotation.x = Math.PI * 0.5 + 0.12;
   noseCowl.scale.set(1.12, 1.0, 0.68);
   noseCowl.position.set(0, 0.24, -2.58);
-  const noseStripe = new THREE.Mesh(new THREE.BoxGeometry(0.20, 0.02, 1.05), accentMat);
-  noseStripe.position.set(0, 0.49, -2.54);
+  const antiGlarePanel = new THREE.Mesh(new THREE.BoxGeometry(0.46, 0.018, 1.08), antiGlareMat);
+  antiGlarePanel.position.set(0, 0.482, -2.54);
+  antiGlarePanel.rotation.x = 0.12;
+  const centerSeam = new THREE.Mesh(new THREE.BoxGeometry(0.012, 0.022, 1.09), seamLineMat);
+  centerSeam.position.set(0, 0.485, -2.54);
+  centerSeam.rotation.x = 0.12;
+  const leftSeam = new THREE.Mesh(new THREE.BoxGeometry(0.014, 0.022, 1.06), seamLineMat);
+  leftSeam.position.set(-0.232, 0.478, -2.54);
+  leftSeam.rotation.set(0.12, 0, 0.16);
+  const rightSeam = new THREE.Mesh(new THREE.BoxGeometry(0.014, 0.022, 1.06), seamLineMat);
+  rightSeam.position.set(0.232, 0.478, -2.54);
+  rightSeam.rotation.set(0.12, 0, -0.16);
+  const noseStripe = new THREE.Mesh(new THREE.BoxGeometry(0.09, 0.021, 1.04), accentMat);
+  noseStripe.position.set(0, 0.486, -2.54);
   noseStripe.rotation.x = 0.12;
-  cockpitGroup.add(noseCowl, noseStripe);
+  cockpitGroup.add(noseCowl, antiGlarePanel, centerSeam, leftSeam, rightSeam, noseStripe);
 
   // Panoramic canopy struts, corner gussets, overhead brow, and thin reflective canopy glass sheen
   const leftPillar = new THREE.Mesh(new THREE.BoxGeometry(0.072, 0.88, 0.085), frameMat);
@@ -361,14 +383,35 @@ export function buildCockpitInterior(spec) {
   canopyGlassPane.position.set(0, 0.89, -1.77);
   canopyGlassPane.rotation.x = 0.24;
 
-  const compassPod = new THREE.Mesh(new THREE.BoxGeometry(0.14, 0.075, 0.10), bezelOuterMat);
-  compassPod.position.set(0, 1.13, -1.72);
+  // Center canopy post & compact live Standby Magnetic Compass cleanly below HUD heading readout
+  const centerPost = new THREE.Mesh(new THREE.BoxGeometry(0.022, 0.20, 0.028), frameMat);
+  centerPost.position.set(0, 1.11, -1.69);
+  const compassCanvas = document.createElement('canvas');
+  compassCanvas.width = 128;
+  compassCanvas.height = 48;
+  const compassTex = new THREE.CanvasTexture(compassCanvas);
+  compassTex.colorSpace = THREE.SRGBColorSpace;
+  const compassPod = new THREE.Mesh(new THREE.BoxGeometry(0.116, 0.062, 0.072), bezelOuterMat);
+  compassPod.position.set(0, 1.005, -1.68);
+  const compassBezel = new THREE.Mesh(new THREE.BoxGeometry(0.096, 0.044, 0.076), bezelInnerMat);
+  compassBezel.position.set(0, 1.005, -1.68);
   const compassWindow = new THREE.Mesh(
-    new THREE.PlaneGeometry(0.09, 0.036),
-    new THREE.MeshBasicMaterial({ color: 0xffe4a1 }),
+    new THREE.PlaneGeometry(0.088, 0.034),
+    new THREE.MeshBasicMaterial({ map: compassTex }),
   );
-  compassWindow.position.set(0, 1.13, -1.668);
-  cockpitGroup.add(leftPillar, rightPillar, leftGusset, rightGusset, topBrow, canopyGlassPane, compassPod, compassWindow);
+  compassWindow.position.set(0, 1.005, -1.640);
+  cockpitGroup.add(
+    leftPillar,
+    rightPillar,
+    leftGusset,
+    rightGusset,
+    topBrow,
+    canopyGlassPane,
+    centerPost,
+    compassPod,
+    compassBezel,
+    compassWindow,
+  );
 
   // 3 Live-rendered 3D EFIS / Moving-Map MFD / EICAS displays
   const pfdCanvas = document.createElement('canvas');
@@ -495,6 +538,9 @@ export function buildCockpitInterior(spec) {
     eicasCanvas,
     eicasCtx: eicasCanvas.getContext('2d'),
     eicasTex,
+    compassCanvas,
+    compassCtx: compassCanvas.getContext('2d'),
+    compassTex,
     lastRedrawAt: -1,
   };
 }
@@ -877,6 +923,21 @@ export function buildAircraftMesh(aircraftId = 'islander') {
   }
   exteriorShell.add(gearGroup);
 
+  // 5. Retractable Arrestor Tailhook Assembly (flush stowed when UP, swings down +X when deployed)
+  const tailhookPivot = new THREE.Group();
+  tailhookPivot.position.set(0, -0.26, 2.85);
+  const hookArm = new THREE.Mesh(new THREE.CylinderGeometry(0.036, 0.044, 1.65, 8), darkMetalMat);
+  hookArm.rotation.x = Math.PI * 0.5;
+  hookArm.position.set(0, 0, 0.82);
+  const hookBand = new THREE.Mesh(new THREE.CylinderGeometry(0.042, 0.042, 0.34, 8), accentMat);
+  hookBand.rotation.x = Math.PI * 0.5;
+  hookBand.position.set(0, 0, 1.28);
+  const hookShoe = new THREE.Mesh(new THREE.BoxGeometry(0.16, 0.20, 0.22), darkMetalMat);
+  hookShoe.position.set(0, -0.08, 1.66);
+  tailhookPivot.add(hookArm, hookBand, hookShoe);
+  tailhookPivot.rotation.x = -0.16;
+  exteriorShell.add(tailhookPivot);
+
   // Enable real-time castShadow & receiveShadow on the entire exterior aircraft & wing assembly
   enableShadows(exteriorShell);
   enableShadows(wingAssembly);
@@ -938,6 +999,7 @@ export function buildAircraftMesh(aircraftId = 'islander') {
     rightSpoiler,
     elevatorPivot,
     rudderPivot,
+    tailhookPivot,
     strobeMeshes: [tailStrobe, leftStrobe, rightStrobe],
     landingBeams: [leftBeam, rightBeam],
   };
@@ -961,9 +1023,11 @@ export function updateCockpitInstruments3D(cockpitRefs, flightState, missionView
   pfd.fillStyle = '#5af2b8';
   pfd.font = 'bold 11px Consolas, monospace';
   pfd.fillText(specTag.slice(0, 11), 10, 16);
-  pfd.fillText('HDG NAV', 132, 16);
+  const ils = flightState.ils;
+  pfd.fillStyle = ils?.active ? '#ff7ae5' : '#5af2b8';
+  pfd.fillText(ils?.active ? `ILS ${ils.runwayLabel}` : 'HDG NAV', 118, 16);
   pfd.fillStyle = '#ff9f2e';
-  pfd.fillText('EFIS ON', 252, 16);
+  pfd.fillText(`AOA ${flightState.alphaDeg.toFixed(1)}°`, 246, 16);
 
   pfd.save();
   pfd.beginPath();
@@ -1007,6 +1071,52 @@ export function updateCockpitInstruments3D(cockpitRefs, flightState, missionView
   pfd.lineTo(176, 116);
   pfd.lineTo(171, 122);
   pfd.stroke();
+
+  // Live ILS Localizer (horizontal dots + diamond) & Glideslope (vertical dots + diamond) on 3D PFD
+  if (ils?.active) {
+    const locY = 192;
+    const gsX = 252;
+    pfd.fillStyle = 'rgba(7, 16, 24, 0.72)';
+    pfd.fillRect(96, locY - 7, 128, 14);
+    pfd.fillRect(gsX - 7, 56, 14, 120);
+
+    pfd.strokeStyle = '#d4e6f2';
+    pfd.lineWidth = 1.3;
+    for (let d = -2; d <= 2; d += 1) {
+      if (d !== 0) {
+        pfd.beginPath();
+        pfd.arc(160 + d * 24, locY, 2.4, 0, Math.PI * 2);
+        pfd.stroke();
+        pfd.beginPath();
+        pfd.arc(gsX, 116 + d * 22, 2.4, 0, Math.PI * 2);
+        pfd.stroke();
+      } else {
+        pfd.strokeStyle = '#ff9f2e';
+        pfd.beginPath();
+        pfd.moveTo(160, locY - 5);
+        pfd.lineTo(160, locY + 5);
+        pfd.moveTo(gsX - 5, 116);
+        pfd.lineTo(gsX + 5, 116);
+        pfd.stroke();
+        pfd.strokeStyle = '#d4e6f2';
+      }
+    }
+
+    const drawDiamond = (dx, dy) => {
+      pfd.fillStyle = '#ff6be6';
+      pfd.beginPath();
+      pfd.moveTo(dx, dy - 5);
+      pfd.lineTo(dx + 5, dy);
+      pfd.lineTo(dx, dy + 5);
+      pfd.lineTo(dx - 5, dy);
+      pfd.closePath();
+      pfd.fill();
+    };
+    const locPx = Math.max(-52, Math.min(52, ils.locDots * 24));
+    const gsPx = Math.max(-48, Math.min(48, -ils.gsDots * 22));
+    drawDiamond(160 + locPx, locY);
+    drawDiamond(gsX, 116 + gsPx);
+  }
 
   pfd.fillStyle = '#0c1824';
   pfd.fillRect(4, 28, 50, 176);
@@ -1243,11 +1353,11 @@ export function updateCockpitInstruments3D(cockpitRefs, flightState, missionView
   };
 
   const rpmPct = Math.round(flightState.rpmNorm * 100);
-  const egtC = Math.round(460 + flightState.throttle * 315 + flightState.engineStressPct * 1.4);
+  const egtC = Math.round(flightState.egtC ?? (460 + flightState.throttle * 315 + flightState.engineStressPct * 1.4));
   drawArcDial(54, 68, 25, flightState.rpmNorm, 'PROP L', `${rpmPct}%`);
   drawArcDial(128, 68, 25, flightState.rpmNorm * 0.99, 'PROP R', `${rpmPct}%`);
-  drawArcDial(202, 68, 25, (egtC - 400) / 480, 'ITT L', `${egtC}°C`);
-  drawArcDial(272, 68, 25, (egtC - 395) / 480, 'ITT R', `${egtC + 4}°C`);
+  drawArcDial(202, 68, 25, (egtC - 400) / 480, 'EGT L', `${egtC}°C`);
+  drawArcDial(272, 68, 25, (egtC - 395) / 480, 'EGT R', `${egtC + 4}°C`);
 
   eic.textAlign = 'left';
   eic.fillStyle = '#eef5f9';
@@ -1270,14 +1380,18 @@ export function updateCockpitInstruments3D(cockpitRefs, flightState, missionView
   eic.fillText(`ENG ${100 - Math.round(flightState.engineStressPct)}% OK`, 304, 162);
 
   const tiles = [
-    { txt: 'GEAR 3 DN', col: '#143d2b', fg: '#5af2b8' },
+    {
+      txt: flightState.tailhookDeployed ? 'HOOK DN' : 'GEAR 3 DN',
+      col: flightState.tailhookDeployed ? '#472a10' : '#143d2b',
+      fg: flightState.tailhookDeployed ? '#ff9f2e' : '#5af2b8',
+    },
     {
       txt: `STRCT ${100 - Math.round(flightState.airframeDmgPct)}%`,
       col: flightState.airframeDmgPct > 20 ? '#472a10' : '#143d2b',
       fg: flightState.airframeDmgPct > 20 ? '#ff9f2e' : '#5af2b8',
     },
     {
-      txt: flightState.engineOverheatWarning ? 'ENG HOT' : flightState.brakes ? 'BRK ON' : 'GEN L/R OK',
+      txt: flightState.engineOverheatWarning ? 'EGT HIGH' : flightState.brakes ? 'BRK ON' : 'GEN L/R OK',
       col: flightState.engineOverheatWarning || flightState.brakes ? '#472a10' : '#143d2b',
       fg: flightState.engineOverheatWarning || flightState.brakes ? '#ff9f2e' : '#5af2b8',
     },
@@ -1296,6 +1410,48 @@ export function updateCockpitInstruments3D(cockpitRefs, flightState, missionView
   }
   eic.restore();
   cockpitRefs.eicasTex.needsUpdate = true;
+
+  // 4. Overhead Standby Magnetic Compass Lubber Card (128x48)
+  const cmp = cockpitRefs.compassCtx;
+  if (cmp) {
+    cmp.save();
+    cmp.fillStyle = '#08121a';
+    cmp.fillRect(0, 0, 128, 48);
+    const hdg = ((flightState.headingDeg % 360) + 360) % 360;
+    const pxPerDeg = 1.6;
+    const base = Math.floor(hdg / 10) * 10;
+    cmp.strokeStyle = '#d9ecf5';
+    cmp.fillStyle = '#eef5f9';
+    cmp.font = 'bold 13px Consolas, monospace';
+    cmp.textAlign = 'center';
+    for (let o = -40; o <= 40; o += 10) {
+      const deg = ((base + o) % 360 + 360) % 360;
+      let diff = base + o - hdg;
+      if (diff > 180) diff -= 360;
+      if (diff < -180) diff += 360;
+      const x = 64 + diff * pxPerDeg;
+      if (x < 4 || x > 124) continue;
+      const major = deg % 30 === 0;
+      cmp.beginPath();
+      cmp.moveTo(x, major ? 28 : 34);
+      cmp.lineTo(x, 44);
+      cmp.stroke();
+      if (major) {
+        const lbl =
+          deg === 0 ? 'N' : deg === 90 ? 'E' : deg === 180 ? 'S' : deg === 270 ? 'W' : String(deg / 10).padStart(2, '0');
+        cmp.fillStyle = deg % 90 === 0 ? '#ff9f2e' : '#eef5f9';
+        cmp.fillText(lbl, x, 22);
+      }
+    }
+    cmp.strokeStyle = '#ff9f2e';
+    cmp.lineWidth = 2.2;
+    cmp.beginPath();
+    cmp.moveTo(64, 4);
+    cmp.lineTo(64, 44);
+    cmp.stroke();
+    cmp.restore();
+    cockpitRefs.compassTex.needsUpdate = true;
+  }
 }
 
 export function updateAircraftAnimations(aircraft, flightState, cameraMode, missionView, weather, elapsedSec, worldRefs, aids) {
@@ -1327,6 +1483,11 @@ export function updateAircraftAnimations(aircraft, flightState, cameraMode, miss
 
   aircraft.elevatorPivot.rotation.x = -flightState.controlPitch * 0.42;
   aircraft.rudderPivot.rotation.y = flightState.controlYaw * 0.46;
+  if (aircraft.tailhookPivot) {
+    // Three.js +X rotation swings +Z arm downward when deployed, negative tucks flush into tailcone when UP
+    const targetHook = flightState.tailhookDeployed ? 0.62 : -0.16;
+    aircraft.tailhookPivot.rotation.x += (targetHook - aircraft.tailhookPivot.rotation.x) * 0.25;
+  }
 
   const cycle = elapsedSec % 1.25;
   const strobeOn = cycle < 0.08 || (cycle > 0.16 && cycle < 0.24);

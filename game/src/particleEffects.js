@@ -162,6 +162,48 @@ export function spawnTireSmoke(ps, aircraftPos, aircraftQuat, count = 6) {
   }
 }
 
+export function spawnArrestorSparks(ps, aircraftPos, aircraftQuat) {
+  const hookOff = new THREE.Vector3(0, -1.6, 3.8).applyQuaternion(aircraftQuat).add(aircraftPos);
+  const backWorld = new THREE.Vector3(0, 0, 1).applyQuaternion(aircraftQuat);
+  const rightWorld = new THREE.Vector3(1, 0, 0).applyQuaternion(aircraftQuat);
+
+  for (let i = 0; i < 16; i += 1) {
+    const seed = ps.seedCounter++;
+    const mat = new THREE.SpriteMaterial({
+      map: ps.fireTex,
+      color: i % 2 === 0 ? 0xffe49e : 0xff9436,
+      transparent: true,
+      opacity: 0.92,
+      depthWrite: false,
+      blending: THREE.AdditiveBlending,
+    });
+    const sp = new THREE.Sprite(mat);
+    sp.scale.set(0.85, 0.85, 1);
+    sp.position.copy(hookOff);
+    ps.group.add(sp);
+
+    const spread = (detRand(seed * 7) - 0.5) * 9.5;
+    const backSpd = 6.5 + detRand(seed * 11) * 10.5;
+    ps.particles.push({
+      mesh: sp,
+      mat,
+      isSprite: true,
+      baseOpacity: 0.92,
+      vel: new THREE.Vector3(
+        backWorld.x * backSpd + rightWorld.x * spread,
+        2.2 + detRand(seed * 13) * 4.5,
+        backWorld.z * backSpd + rightWorld.z * spread,
+      ),
+      drag: 2.6,
+      growX: 0.8,
+      growY: 0.8,
+      rotVel: 2.0,
+      age: 0,
+      maxAge: 0.48 + detRand(seed * 17) * 0.35,
+    });
+  }
+}
+
 export function spawnCrashExplosion(ps, crashPos) {
   for (let i = 0; i < 38; i += 1) {
     const seed = ps.seedCounter++;
